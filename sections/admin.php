@@ -136,6 +136,9 @@ $js_all_chars = json_encode(array_map('charToJs', $dnd_all_chars));
     <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:1px;margin-bottom:8px;text-transform:uppercase;flex-shrink:0;">
       대기 캐릭터 <span id="pool-count" style="color:var(--gold);font-weight:900;"></span>
     </div>
+    <input id="pool-filter-input" type="text" placeholder="대기 목록에서 찾기" autocomplete="off"
+      oninput="filterPool(this.value)"
+      style="margin-bottom:8px;flex-shrink:0;padding:7px 10px;background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;">
     <div id="dnd-pool" data-drop-zone="pool" class="dnd-scroll"
       style="flex:1;overflow-y:auto;background:var(--bg-dark);border:1px solid var(--border);border-radius:8px;padding:8px;">
     </div>
@@ -292,6 +295,7 @@ $js_all_chars = json_encode(array_map('charToJs', $dnd_all_chars));
   let pool = <?= $js_pool ?>;
   let forces = <?= $js_forces ?>;
   const SEASON_ID = <?= (int)$current_season_id ?>;
+  let poolFilter = '';
 
   // 드래그 추적
   let dragCharId = null;
@@ -336,12 +340,16 @@ $js_all_chars = json_encode(array_map('charToJs', $dnd_all_chars));
   }
 
   function render() {
-    // 풀
+    // 풀 (대기 목록 필터 적용)
     const poolEl = document.getElementById('dnd-pool');
-    document.getElementById('pool-count').textContent = `(${pool.length}명)`;
+    const pf = poolFilter.trim().toLowerCase();
+    const shownPool = pf ? pool.filter(c => c.char_name.toLowerCase().includes(pf)) : pool;
+    document.getElementById('pool-count').textContent = pf ? `(${shownPool.length}/${pool.length})` : `(${pool.length}명)`;
     poolEl.innerHTML = pool.length === 0
-      ? '<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:20px 0;">모든 캐릭터 배치 완료</div>'
-      : pool.map((c, idx) => charCardHtml(c, `data-drag-src="pool" data-pool-idx="${idx}"`, true)).join('');
+      ? '<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:20px 0;">대기 캐릭터가 없습니다.<br>위에서 검색해 추가하세요.</div>'
+      : (shownPool.length === 0
+          ? '<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:20px 0;">검색 결과 없음</div>'
+          : shownPool.map((c, idx) => charCardHtml(c, `data-drag-src="pool" data-pool-idx="${idx}"`, true)).join(''));
 
     // 포스
     const forcesEl = document.getElementById('dnd-forces');
@@ -859,6 +867,13 @@ $js_all_chars = json_encode(array_map('charToJs', $dnd_all_chars));
     } finally {
       btn.disabled = false;
     }
+  };
+
+  // ── 대기 목록 필터 ───────────────────────────────────────────────────────────
+  window.filterPool = function(v) {
+    poolFilter = v;
+    render();
+    // render()가 입력란을 건드리지 않으므로 포커스는 유지됨
   };
 
   // ── 대기열 캐릭터 삭제 ───────────────────────────────────────────────────────

@@ -24,7 +24,9 @@ try {
     if (!$row) {
         json_out(['success' => false, 'error' => 'not_found'], 404);
     }
-    if ($row['applicant_ip'] !== 'admin_added') {
+    // 신청 기능이 폐지되어 대기열의 모든 캐릭터는 관리자가 직접 삭제 가능.
+    // buddy_synthesized(자동 합성)만 보호.
+    if ($row['applicant_ip'] === 'buddy_synthesized') {
         json_out(['success' => false, 'error' => 'not_deletable'], 400);
     }
 
