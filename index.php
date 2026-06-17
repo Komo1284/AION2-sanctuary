@@ -145,9 +145,9 @@ $tab = isset($_GET['tab']) ? $_GET['tab'] : 'home';
 if (isset($_GET['nav'])) {
     $nav = $_GET['nav'];
 } elseif ($tab === 'season' && $current_season) {
-    $nav = ($current_season['status'] === '모집종료') ? 'forces' : 'apply';
+    $nav = 'forces';
 } else {
-    $nav = 'apply';
+    $nav = 'forces';
 }
 
 $message = '';
@@ -169,10 +169,6 @@ if (isset($_GET['admin_logout'])) {
     unset($_SESSION['sanctuary_admin']);
     header('Location: index.php');
     exit;
-}
-
-if (isset($_POST['apply_force'])) {
-    require_once 'actions/apply_force.php';
 }
 
 if (isset($_POST['write_notice']) && $is_admin) {
@@ -516,7 +512,7 @@ body {
     box-shadow: 0 2px 20px rgba(0,0,0,0.5);
 }
 .header-inner {
-    max-width: 1400px; margin: 0 auto;
+    max-width: 1760px; margin: 0 auto;
     display: flex; align-items: center; height: 60px; gap: 32px;
 }
 .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; flex-shrink: 0; }
@@ -554,7 +550,7 @@ body {
     border: 1px solid var(--gold-dark); border-radius: 4px; font-size: 11px; color: var(--gold);
 }
 .main-layout {
-    max-width: 1400px; margin: 0 auto; padding: 24px;
+    max-width: 1760px; margin: 0 auto; padding: 24px;
     display: flex; gap: 20px; min-height: calc(100vh - 60px);
 }
 .side-nav { width: 180px; flex-shrink: 0; }
@@ -740,7 +736,6 @@ body {
     <?php if ($tab === 'season' && $current_season): ?>
     <div class="nav-group">
       <div class="nav-group-title">메뉴</div>
-      <a href="?tab=season&season=<?= $current_season_id ?>&nav=apply" class="nav-item <?= $nav === 'apply' ? 'active' : '' ?>"><span class="nav-icon">✍️</span> 포스 신청</a>
       <a href="?tab=season&season=<?= $current_season_id ?>&nav=forces" class="nav-item <?= $nav === 'forces' ? 'active' : '' ?>"><span class="nav-icon">⚔️</span> 포스 리스트</a>
       <?php if ($is_admin): ?>
       <a href="?tab=season&season=<?= $current_season_id ?>&nav=admin" class="nav-item <?= $nav === 'admin' ? 'active' : '' ?>"><span class="nav-icon">⚙️</span> 관리</a>
@@ -768,12 +763,11 @@ body {
     <?php endif; ?>
     <?php if ($tab === 'season' && $current_season): ?>
       <?php
-        if ($nav === 'apply') include 'sections/apply.php';
-        elseif ($nav === 'forces') include 'sections/forces.php';
-        elseif ($nav === 'admin' && $is_admin) include 'sections/admin.php';
+        if ($nav === 'admin' && $is_admin) include 'sections/admin.php';
         elseif ($nav === 'admin' && !$is_admin) {
             echo '<div class="content-panel"><div class="panel-body"><div class="empty-state"><div class="empty-icon">🔐</div><p>관리자 로그인이 필요합니다.</p></div></div></div>';
         }
+        else include 'sections/forces.php';
       ?>
     <?php elseif ($tab === 'notices'): ?>
       <?php
@@ -829,111 +823,5 @@ body {
   </div>
 </div>
 
-<script>
-// 캐릭터명 변경 시 점수 초기화
-function clearCharScore(inputEl) {
-    const row = inputEl.closest('.char-row');
-    if (!row) return;
-    row.querySelector('.hidden-score').value = '';
-    const hiddenClass = row.querySelector('.hidden-class');
-    if (hiddenClass) hiddenClass.value = '';
-    const hiddenIL = row.querySelector('.hidden-item-level');
-    if (hiddenIL) hiddenIL.value = '';
-    const hiddenLegion = row.querySelector('.hidden-legion');
-    if (hiddenLegion) hiddenLegion.value = '';
-    row.querySelector('.char-result').innerHTML = '';
-}
-
-async function fetchAtulScore(inputEl, resultEl, btnEl) {
-    const name = inputEl.value.trim();
-    if (!name) { alert('캐릭터명을 입력하세요.'); return; }
-    btnEl.disabled = true;
-    resultEl.innerHTML = '<span class="loading-spinner"></span> 조회중...';
-    try {
-        const res = await fetch(`actions/fetch_atul.php?name=${encodeURIComponent(name)}`);
-        if (res.ok) {
-            const data = await res.json();
-            if (data.success) {
-                const scoreText = data.score ? Number(data.score).toLocaleString() : '-';
-                const ilText = data.item_level ? `<span style="font-size:11px;color:var(--text-muted);margin-left:4px;">아이템Lv ${data.item_level}</span>` : '';
-                resultEl.innerHTML = `<span class="atul-score">${scoreText}</span>${ilText}${data.job ? `<span class="cls cls-${data.job}">${data.job}</span>` : ''}`;
-                const row = inputEl.closest('.char-row');
-                row.querySelector('.hidden-score').value = data.score || 0;
-                if (data.job) row.querySelector('.hidden-class').value = data.job;
-                const hiddenIL = row.querySelector('.hidden-item-level');
-                if (hiddenIL && data.item_level) hiddenIL.value = data.item_level;
-                const hiddenLegion = row.querySelector('.hidden-legion');
-                if (hiddenLegion) hiddenLegion.value = data.legion || '';
-            } else { throw new Error('not_found'); }
-        } else { throw new Error('api_error'); }
-    } catch (e) {
-        showManualInput(inputEl.closest('.char-row'), resultEl, name);
-    } finally { btnEl.disabled = false; }
-}
-
-function showManualInput(row, resultEl, name) {
-    resultEl.innerHTML = `
-        <span class="atul-error">자동조회 불가</span>
-        <input type="number" class="char-name-input manual-score" placeholder="전투력 직접입력" min="0" style="width:120px;">
-        <input type="number" class="manual-item-level" placeholder="아이템Lv" min="0" style="width:80px;padding:5px 8px;background:var(--bg-dark);border:1px solid var(--border);border-radius:5px;color:var(--text-primary);font-size:12px;">
-        <select class="manual-class" style="padding:5px 8px;background:var(--bg-dark);border:1px solid var(--border);border-radius:5px;color:var(--text-primary);font-size:12px;">
-            <option value="">직업선택</option>
-            <option>수호성</option><option>검성</option><option>살성</option><option>궁성</option>
-            <option>호법성</option><option>정령성</option><option>마도성</option><option>치유성</option>
-        </select>
-    `;
-    resultEl.querySelector('.manual-score').addEventListener('change', function() { row.querySelector('.hidden-score').value = this.value; });
-    resultEl.querySelector('.manual-class').addEventListener('change', function() { row.querySelector('.hidden-class').value = this.value; });
-    resultEl.querySelector('.manual-item-level').addEventListener('change', function() {
-        const hiddenIL = row.querySelector('.hidden-item-level');
-        if (hiddenIL) hiddenIL.value = this.value;
-    });
-}
-
-// 부캐 추가
-let subCharCount = 0;
-function addSubChar() {
-    subCharCount++;
-    const container = document.getElementById('subCharsContainer');
-    const div = document.createElement('div');
-    div.className = 'char-row';
-    div.id = 'subChar_' + subCharCount;
-    div.innerHTML =
-        '<span class="char-type sub">부캐</span>' +
-        '<input type="text" name="sub_name[]" class="char-name-input" placeholder="부캐 캐릭터명" oninput="clearCharScore(this)">' +
-        '<input type="hidden" name="sub_score[]" class="hidden-score" value="">' +
-        '<input type="hidden" name="sub_class[]" class="hidden-class" value="">' +
-        '<input type="hidden" name="sub_item_level[]" class="hidden-item-level" value="">' +
-        '<input type="hidden" name="sub_legion[]" class="hidden-legion" value="">' +
-        '<button type="button" class="btn btn-secondary btn-sm" style="padding:6px 10px;font-size:12px;" onclick="fetchSubScore(this)">🔍 조회</button>' +
-        '<span class="char-result" style="min-width:200px;"></span>' +
-        '<button type="button" class="btn btn-danger" style="padding:5px 8px;font-size:11px;margin-left:auto;" onclick="this.closest(\'.char-row\').remove()">✕</button>';
-    container.appendChild(div);
-}
-
-function fetchSubScore(btn) {
-    const row = btn.closest('.char-row');
-    const inputEl = row.querySelector('input[name="sub_name[]"]');
-    const resultEl = row.querySelector('.char-result');
-    fetchAtulScore(inputEl, resultEl, btn);
-}
-
-
-function validateApply() {
-    const mainName = document.querySelector('input[name="main_name"]').value.trim();
-    if (!mainName) { alert('본캐 이름을 입력하세요.'); return false; }
-    const mainScore = document.querySelector('input[name="main_score"]').value;
-    if (!mainScore) { alert('본캐 아툴 점수를 조회하거나 직접 입력하세요.'); return false; }
-    const mainClass = document.querySelector('input[name="main_class"]').value;
-    if (!mainClass) { alert('본캐 직업을 선택하세요.'); return false; }
-    const subScores = document.querySelectorAll('input[name="sub_score[]"]');
-    const subNames = document.querySelectorAll('input[name="sub_name[]"]');
-    for (let i = 0; i < subScores.length; i++) {
-        const name = subNames[i].value.trim();
-        if (name && !subScores[i].value) { alert(`부캐 "${name}"의 아툴 점수를 조회하거나 직접 입력하세요.`); return false; }
-    }
-    return true;
-}
-</script>
 </body>
 </html>

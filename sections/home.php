@@ -80,7 +80,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg-dark);color:var(-
 .btn-logout:hover{background:rgba(192,57,43,.2);}
 
 /* ── Body ── */
-.home-body{max-width:1200px;margin:0 auto;padding:36px 24px;}
+.home-body{max-width:1760px;margin:0 auto;padding:36px 24px;}
 
 /* ── Nav Cards ── */
 .nav-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:40px;}

@@ -2,33 +2,25 @@
 $season_status = $current_season['status'] ?? '구성중';
 if ($season_status === '모집중') $season_status = '구성중';
 
-// 통계 - 신청자 캐릭터 (buddy_synthesized 제외)
+// 통계 - 추가된 캐릭터 (buddy_synthesized 제외)
 $stats = $pdo->prepare("
     SELECT
-        COUNT(DISTINCT sa.id)                                        AS total_apps,
-        COUNT(CASE WHEN sc.is_main = 1 THEN 1 END)                  AS total_main,
-        COUNT(CASE WHEN sc.is_main = 0 THEN 1 END)                  AS total_sub,
-        COUNT(CASE WHEN sc.char_class = '치유성' THEN 1 END)        AS total_heal
-    FROM sanctuary_applications sa
-    LEFT JOIN sanctuary_characters sc ON sc.application_id = sa.id
+        COUNT(*)                                              AS total_chars,
+        COUNT(CASE WHEN sc.char_class = '치유성' THEN 1 END)  AS total_heal
+    FROM sanctuary_characters sc
+    JOIN sanctuary_applications sa ON sa.id = sc.application_id
     WHERE sa.season_id = ? AND sa.applicant_ip != 'buddy_synthesized'
 ");
 $stats->execute([$current_season_id]);
 $stat = $stats->fetch();
 
-$total_main  = (int)($stat['total_main'] ?? 0);
-$total_sub   = (int)($stat['total_sub']  ?? 0);
-$total_heal  = (int)($stat['total_heal'] ?? 0);
-$total_chars = $total_main + $total_sub;
+$total_chars = (int)($stat['total_chars'] ?? 0);
+$total_heal  = (int)($stat['total_heal']  ?? 0);
+$total_other = $total_chars - $total_heal;
 
 $fc_stmt = $pdo->prepare("SELECT COUNT(*) FROM sanctuary_forces WHERE season_id = ?");
 $fc_stmt->execute([$current_season_id]);
 $force_count = (int)$fc_stmt->fetchColumn();
-
-// 신청자 목록
-$apps_list = $pdo->prepare("SELECT sa.* FROM sanctuary_applications sa WHERE sa.season_id = ? AND sa.applicant_ip != 'buddy_synthesized' ORDER BY sa.applied_at DESC");
-$apps_list->execute([$current_season_id]);
-$all_apps = $apps_list->fetchAll();
 ?>
 
 <div class="content-panel">
@@ -40,73 +32,11 @@ $all_apps = $apps_list->fetchAll();
 
     <!-- 통계 카드 -->
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;">
-      <div class="stat-card"><div class="stat-value"><?= $stat['total_apps'] ?? 0 ?></div><div class="stat-label">총 신청자</div></div>
-      <div class="stat-card"><div class="stat-value"><?= $total_main ?></div><div class="stat-label">본캐</div></div>
-      <div class="stat-card"><div class="stat-value"><?= $total_sub ?></div><div class="stat-label">부캐</div></div>
+      <div class="stat-card"><div class="stat-value"><?= $total_chars ?></div><div class="stat-label">총 캐릭터</div></div>
       <div class="stat-card"><div class="stat-value" style="color:var(--class-heal);"><?= $total_heal ?></div><div class="stat-label">치유성</div></div>
+      <div class="stat-card"><div class="stat-value"><?= $total_other ?></div><div class="stat-label">비치유</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--gold-light);"><?= $force_count ?></div><div class="stat-label">포스 수</div></div>
     </div>
-
-    <!-- 신청자 목록 (구성중/모집종료 공통) -->
-    <details style="margin-bottom:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;">
-      <summary style="cursor:pointer;padding:12px 16px;font-size:14px;font-weight:700;color:var(--text-secondary);user-select:none;">
-        📋 신청자 목록 관리 (총 <?= count($all_apps) ?>명)
-        <span style="font-size:11px;color:var(--text-muted);font-weight:400;margin-left:8px;">— 클릭하여 펼치기</span>
-      </summary>
-      <div style="padding:0 16px 16px;">
-        <?php if (empty($all_apps)): ?>
-        <div class="empty-state" style="padding:20px 0;"><div class="empty-icon">📭</div><p>신청자가 없습니다.</p></div>
-        <?php else: ?>
-        <div style="overflow-x:auto;">
-        <table class="applicant-table">
-          <thead>
-            <tr>
-              <th>#</th><th>본캐</th><th>직업</th><th>아툴</th><th>부캐</th><th>신청일시</th><th>작업</th>
-            </tr>
-          </thead>
-          <tbody>
-            <?php $row_num = 0; foreach ($all_apps as $app):
-              $app_chars_q = $pdo->prepare("SELECT * FROM sanctuary_characters WHERE application_id = ? ORDER BY is_main DESC");
-              $app_chars_q->execute([$app['id']]);
-              $chars = $app_chars_q->fetchAll();
-              $main_char = null; $sub_chars = [];
-              foreach ($chars as $c) { if ($c['is_main']) $main_char = $c; else $sub_chars[] = $c; }
-            ?>
-            <tr>
-              <td style="color:var(--text-muted);font-size:12px;"><?= ++$row_num ?></td>
-              <td><?php if ($main_char): ?><span style="font-weight:600;"><?= htmlspecialchars($main_char['char_name']) ?></span><?php endif; ?></td>
-              <td><?php if ($main_char): ?><span class="cls cls-<?= htmlspecialchars($main_char['char_class']) ?>"><?= htmlspecialchars($main_char['char_class']) ?></span><?php endif; ?></td>
-              <td>
-                <?php if ($main_char): ?>
-                  <span class="score-badge"><?= number_format($main_char['atul_score']) ?></span>
-                  <?php if (!empty($main_char['item_level'])): ?><span style="font-size:10px;color:var(--text-muted);display:block;margin-top:2px;">Lv<?= (int)$main_char['item_level'] ?></span><?php endif; ?>
-                <?php endif; ?>
-              </td>
-              <td>
-                <?php foreach ($sub_chars as $sc): ?>
-                <div style="font-size:11px;color:var(--text-muted);white-space:nowrap;">
-                  <?= htmlspecialchars($sc['char_name']) ?>
-                  <span class="cls cls-<?= htmlspecialchars($sc['char_class']) ?>" style="font-size:10px;"><?= htmlspecialchars($sc['char_class']) ?></span>
-                  <span class="score-badge-sm"><?= number_format($sc['atul_score']) ?></span>
-                </div>
-                <?php endforeach; ?>
-                <?php if (empty($sub_chars)): ?><span style="color:var(--text-muted);font-size:11px;">-</span><?php endif; ?>
-              </td>
-              <td class="notice-date"><?= date('m-d H:i', strtotime($app['applied_at'] . ' UTC')) ?></td>
-              <td>
-                <form method="POST" onsubmit="return confirm('이 신청을 취소하시겠습니까? 배치된 포스에서도 제거됩니다.');" style="display:inline;">
-                  <input type="hidden" name="cancel_application" value="1">
-                  <input type="hidden" name="app_id" value="<?= $app['id'] ?>">
-                  <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:11px;">취소</button>
-                </form>
-              </td>
-            </tr>
-            <?php endforeach; ?>
-          </tbody>
-        </table>
-        </div>
-        <?php endif; ?>
-      </div>
-    </details>
 
 <?php if ($season_status === '구성중'): ?>
 <!-- 구성중 화면: 드래그앤드롭 포스 편집기 + 상시 신청 받음 -->
@@ -174,7 +104,7 @@ $js_all_chars = json_encode(array_map('charToJs', $dnd_all_chars));
 ?>
 
 <div class="alert alert-warning" style="margin-bottom:16px;">
-  ⚙️ <strong>포스 구성 중</strong> — 신청은 상시 받습니다. 드래그앤드롭으로 캐릭터를 배치한 후 <strong style="color:var(--gold-light);">포스 구성 완료</strong>를 클릭하면 일반 유저에게 공개됩니다.
+  ⚙️ <strong>포스 구성 중</strong> — 왼쪽에서 캐릭터를 검색해 추가하고, 드래그앤드롭으로 포스에 배치하세요. <strong style="color:var(--gold-light);">포스 구성 완료</strong>를 누르면 일반 유저에게 공개됩니다.
 </div>
 
 <!-- 상단 컨트롤 (JS로 렌더링) -->
@@ -189,10 +119,22 @@ $js_all_chars = json_encode(array_map('charToJs', $dnd_all_chars));
 <!-- 드래그앤드롭 영역 -->
 <div id="dnd-main" style="display:flex;gap:16px;height:calc(100vh - 280px);min-height:520px;">
 
-  <!-- 캐릭터 풀 (왼쪽) -->
-  <div style="width:210px;flex-shrink:0;display:flex;flex-direction:column;">
+  <!-- 캐릭터 검색 / 대기열 (왼쪽) -->
+  <div style="width:250px;flex-shrink:0;display:flex;flex-direction:column;">
     <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:1px;margin-bottom:8px;text-transform:uppercase;flex-shrink:0;">
-      미배정 캐릭터 <span id="pool-count" style="color:var(--gold);font-weight:900;"></span>
+      캐릭터 검색
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:6px;flex-shrink:0;">
+      <input id="char-search-input" type="text" placeholder="캐릭터명 입력 후 Enter"
+        autocomplete="off"
+        style="flex:1;min-width:0;padding:8px 10px;background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:13px;font-family:inherit;outline:none;"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();searchCharacter();}">
+      <button id="char-search-btn" onclick="searchCharacter()" class="btn btn-primary" style="padding:8px 12px;flex-shrink:0;">🔍</button>
+    </div>
+    <div id="char-search-msg" style="font-size:11px;min-height:16px;margin-bottom:10px;flex-shrink:0;color:var(--text-muted);"></div>
+
+    <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:1px;margin-bottom:8px;text-transform:uppercase;flex-shrink:0;">
+      대기 캐릭터 <span id="pool-count" style="color:var(--gold);font-weight:900;"></span>
     </div>
     <div id="dnd-pool" data-drop-zone="pool" class="dnd-scroll"
       style="flex:1;overflow-y:auto;background:var(--bg-dark);border:1px solid var(--border);border-radius:8px;padding:8px;">
@@ -349,6 +291,7 @@ $js_all_chars = json_encode(array_map('charToJs', $dnd_all_chars));
 
   let pool = <?= $js_pool ?>;
   let forces = <?= $js_forces ?>;
+  const SEASON_ID = <?= (int)$current_season_id ?>;
 
   // 드래그 추적
   let dragCharId = null;
@@ -363,12 +306,14 @@ $js_all_chars = json_encode(array_map('charToJs', $dnd_all_chars));
     return Math.round(valid.reduce((s, c) => s + c.atul_score, 0) / valid.length);
   }
 
-  function charCardHtml(char, extraStyle) {
+  function charCardHtml(char, extraStyle, isPool) {
     const cls = clsKey(char.char_class);
     const subTag = !char.is_main ? '<span style="font-size:9px;color:var(--text-muted);background:rgba(74,90,120,0.3);border-radius:2px;padding:1px 4px;margin-left:3px;">부캐</span>' : '';
+    const delBtn = isPool ? `<button draggable="false" onclick="event.stopPropagation();deleteCharFromPool(${char.id})" title="캐릭터 삭제" style="flex-shrink:0;background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:12px;line-height:1;padding:2px 3px;border-radius:3px;">✕</button>` : '';
     return `<div class="dnd-char-card" draggable="true" data-char-id="${char.id}" ${extraStyle||''} style="border-left:3px solid var(--class-${cls});">
-      <div style="font-size:12px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-        ${char.char_name}${subTag}
+      <div style="display:flex;align-items:center;gap:4px;">
+        <span style="flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${char.char_name}${subTag}</span>
+        ${delBtn}
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px;">
         <span style="font-size:11px;color:var(--class-${cls});">${char.char_class}</span>
@@ -396,7 +341,7 @@ $js_all_chars = json_encode(array_map('charToJs', $dnd_all_chars));
     document.getElementById('pool-count').textContent = `(${pool.length}명)`;
     poolEl.innerHTML = pool.length === 0
       ? '<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:20px 0;">모든 캐릭터 배치 완료</div>'
-      : pool.map((c, idx) => charCardHtml(c, `data-drag-src="pool" data-pool-idx="${idx}"`)).join('');
+      : pool.map((c, idx) => charCardHtml(c, `data-drag-src="pool" data-pool-idx="${idx}"`, true)).join('');
 
     // 포스
     const forcesEl = document.getElementById('dnd-forces');
@@ -850,6 +795,92 @@ $js_all_chars = json_encode(array_map('charToJs', $dnd_all_chars));
   window.openFinalizeModal = function() {
     document.getElementById('finalize-forces-data').value = JSON.stringify(collectForcesData());
     document.getElementById('finalizeModal').classList.add('active');
+  };
+
+  // ── 캐릭터 검색 → 실시간 조회 → 즉시 등록 → 대기열 추가 ───────────────────────
+  window.searchCharacter = async function() {
+    const input = document.getElementById('char-search-input');
+    const btn = document.getElementById('char-search-btn');
+    const msg = document.getElementById('char-search-msg');
+    const name = input.value.trim();
+    if (!name) { msg.style.color = 'var(--text-muted)'; msg.textContent = '캐릭터명을 입력하세요.'; return; }
+    btn.disabled = true;
+    msg.style.color = 'var(--text-muted)';
+    msg.innerHTML = '<span class="loading-spinner"></span> 조회중...';
+    try {
+      const res = await fetch(`actions/fetch_atul.php?name=${encodeURIComponent(name)}`);
+      const data = await res.json();
+      if (!data.success) {
+        msg.style.color = 'var(--red-light)';
+        msg.textContent = data.error === 'not_found' ? '캐릭터를 찾을 수 없습니다.' : '조회 실패. 다시 시도하세요.';
+        return;
+      }
+      if (!data.job) {
+        msg.style.color = 'var(--red-light)';
+        msg.textContent = '직업 정보를 가져오지 못했습니다.';
+        return;
+      }
+      // DB 즉시 등록
+      const form = new URLSearchParams();
+      form.set('season_id', SEASON_ID);
+      form.set('char_name', data.name || name);
+      form.set('char_class', data.job);
+      form.set('atul_score', data.score || 0);
+      if (data.item_level) form.set('item_level', data.item_level);
+      const addRes = await fetch('actions/add_character.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form.toString(),
+      });
+      const addData = await addRes.json();
+      if (!addData.success) {
+        msg.style.color = 'var(--red-light)';
+        msg.textContent = addData.error === 'unauthorized' ? '관리자 권한이 필요합니다.' : '등록 실패. 다시 시도하세요.';
+        return;
+      }
+      const c = addData.char;
+      if (addData.duplicate) {
+        msg.style.color = 'var(--gold-light)';
+        msg.textContent = `이미 추가된 캐릭터입니다: ${c.char_name}`;
+        if (!findCharById(c.id)) { pool.unshift(c); pool.sort((a,b)=>b.atul_score-a.atul_score); render(); }
+        input.value = ''; input.focus();
+        return;
+      }
+      pool.unshift(c);
+      pool.sort((a,b)=>b.atul_score-a.atul_score);
+      render();
+      msg.style.color = 'var(--green-light)';
+      msg.textContent = `추가됨: ${c.char_name} (${c.char_class} · ${c.atul_score.toLocaleString()})`;
+      input.value = '';
+      input.focus();
+    } catch (e) {
+      msg.style.color = 'var(--red-light)';
+      msg.textContent = '네트워크 오류. 다시 시도하세요.';
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  // ── 대기열 캐릭터 삭제 ───────────────────────────────────────────────────────
+  window.deleteCharFromPool = async function(charId) {
+    const c = pool.find(x => x.id === charId);
+    if (!c) return;
+    if (!confirm(`"${c.char_name}" 캐릭터를 삭제할까요?`)) return;
+    try {
+      const form = new URLSearchParams();
+      form.set('char_id', charId);
+      const res = await fetch('actions/delete_character.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form.toString(),
+      });
+      const data = await res.json();
+      if (!data.success) { showWarning('삭제 실패: ' + (data.error || '')); return; }
+      removeFromPool(charId);
+      render();
+    } catch (e) {
+      showWarning('삭제 중 네트워크 오류');
+    }
   };
 
   render();
