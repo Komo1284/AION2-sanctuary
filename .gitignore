@@ -16,3 +16,5 @@ Thumbs.db
 *.log
 *.bak
 *.tmp
+.gstack/
+.superpowers/
