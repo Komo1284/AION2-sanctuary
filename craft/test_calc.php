@@ -42,5 +42,12 @@ $memo = [];
 $ro = craft_cost('현룡왕의 목걸이', $ctx, ['현룡왕의 목걸이'], $memo, false);
 chk('현룡왕 보유 → 0', $ro['cost'], 0);
 
+$ctx2 = craft_load_context($pdo, '목걸이');
+$routes = craft_enumerate_routes($ctx2, '응룡왕의 목걸이', []);
+chk('루트 최소 2개 이상', count($routes) >= 2 ? 1 : 0, 1);
+chk('루트는 cost 오름차순', ($routes[0]['cost_fixed'] <= $routes[count($routes)-1]['cost_fixed']) ? 1 : 0, 1);
+$hasDirect = false; foreach ($routes as $r) if (mb_strpos($r['label'],'직접제작')!==false) $hasDirect=true;
+chk('직접제작 루트 존재', $hasDirect ? 1 : 0, 1);
+
 echo $fail === 0 ? "\nALL PASS\n" : "\n$fail FAILED\n";
 exit($fail === 0 ? 0 : 1);
