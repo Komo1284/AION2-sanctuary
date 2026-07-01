@@ -1,36 +1,27 @@
 <?php
-// 제작효율 계산 페이지 — 비밀번호 없이 접근 가능한 독립 페이지
-// (index.php의 사이트 접근 게이트를 거치지 않음)
-?><!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>제작효율 계산</title>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body {
-    font-family: 'Noto Sans KR', sans-serif;
-    background: #0a0c14;
-    color: #e8eaf0;
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background-image:
-        radial-gradient(ellipse at 30% 50%, rgba(58,123,213,0.06) 0%, transparent 60%),
-        radial-gradient(ellipse at 70% 30%, rgba(108,61,201,0.06) 0%, transparent 60%);
+session_start();
+date_default_timezone_set('Asia/Seoul');
+
+$db_host='localhost'; $db_name='budget_manager'; $db_user='budget_user'; $db_pass='budget2026!';
+try {
+    $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    die('<div style="color:red;padding:20px;">DB 연결 실패: '.htmlspecialchars($e->getMessage()).'</div>');
 }
-.test-text {
-    font-size: 64px;
-    font-weight: 900;
-    color: #f0c96a;
-    letter-spacing: 2px;
+
+require_once __DIR__ . '/craft/schema.php';
+craft_init_schema($pdo);
+
+$is_admin = isset($_SESSION['sanctuary_admin']) && $_SESSION['sanctuary_admin'] === true;
+
+// 임시 디버그(다음 태스크에서 제거): seed 확인
+if (isset($_GET['debug'])) {
+    $rc = (int)$pdo->query("SELECT COUNT(*) FROM craft_recipes")->fetchColumn();
+    $mc = (int)$pdo->query("SELECT COUNT(*) FROM craft_materials")->fetchColumn();
+    header('Content-Type: text/plain');
+    echo "recipes=$rc materials=$mc\n";
+    exit;
 }
-</style>
-</head>
-<body>
-  <div class="test-text">테스트</div>
-</body>
-</html>
+echo "craft init OK";
