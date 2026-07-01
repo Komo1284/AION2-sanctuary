@@ -1,7 +1,7 @@
 <?php
 $fmt = fn($n) => number_format((int)round($n));
 $owned_options = ['없음'];
-foreach (['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕'] as $t) $owned_options[] = "{$t}의 {$acc}";
+foreach (['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕'] as $t) { $owned_options[] = "{$t}의 {$acc}"; $owned_options[] = "빛나는 {$t}의 {$acc}"; }
 ?><!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>응룡왕 제작효율 계산</title>
@@ -23,25 +23,22 @@ select{padding:9px 12px;background:#141828;border:1px solid #1e2840;border-radiu
 .route-ev{font-size:12px;color:#8a9ab8}
 .bd{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px}
 .bd th,.bd td{padding:4px 6px;border-bottom:1px solid rgba(30,40,64,.5);text-align:left}
-.bd td.num{text-align:right;white-space:nowrap}
+.bd th{color:#8a9ab8;font-weight:700}
+.bd .num{text-align:right;white-space:nowrap}
 .badge{display:inline-block;font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(201,168,76,.15);color:#c9a84c;margin-left:6px}
 .link{color:#5a9bf5;text-decoration:none;font-size:13px}
 </style></head><body><div class="wrap">
 <h1>⚒️ 응룡왕 제작효율 계산기</h1>
-<form method="get" class="controls">
-  <select name="acc" onchange="this.form.submit()">
-    <?php foreach (['목걸이','귀걸이','반지'] as $a): ?>
-      <option value="<?= $a ?>" <?= $a===$acc?'selected':'' ?>><?= $a ?></option>
-    <?php endforeach ?>
-  </select>
-  <select name="owned" onchange="this.form.submit()">
-    <?php foreach ($owned_options as $o): ?>
-      <option value="<?= htmlspecialchars($o) ?>" <?= $o===$owned_sel?'selected':'' ?>>
-        <?= $o==='없음'?'보유 아이템 없음':'보유: '.htmlspecialchars($o) ?></option>
-    <?php endforeach ?>
-  </select>
+<div class="controls">
+  <form method="get" style="display:inline">
+    <select name="acc" onchange="this.form.submit()">
+      <?php foreach (['목걸이','귀걸이','반지'] as $a): ?>
+        <option value="<?= $a ?>" <?= $a===$acc?'selected':'' ?>><?= $a ?></option>
+      <?php endforeach ?>
+    </select>
+  </form>
   <a class="link" href="craft.php?acc=<?= $acc ?>&owned=<?= urlencode($owned_sel) ?>#prices">↓ 재료 시세 편집</a>
-</form>
+</div>
 
 <div class="routes-grid">
 <?php foreach ($routes as $i => $r):
@@ -56,6 +53,17 @@ select{padding:9px 12px;background:#141828;border:1px solid #1e2840;border-radiu
     <div class="route-cost"><?= $fmt($r['cost_fixed']) ?></div>
     <div class="route-ev">COMBO 기대값 <?= $fmt($r['cost_ev']) ?></div>
   </div>
+  <?php if (!empty($r['is_owned_route'])): ?>
+  <form method="get" style="margin-bottom:10px">
+    <input type="hidden" name="acc" value="<?= htmlspecialchars($acc) ?>">
+    <label style="display:block;font-size:11px;color:#8a9ab8;margin-bottom:4px">보유(장착)중인 아이템 선택 — 여기서부터 계승</label>
+    <select name="owned" onchange="this.form.submit()" style="width:100%;padding:7px 10px;background:#0a0c14;border:1px solid #1e2840;border-radius:6px;color:#e8eaf0;font-family:inherit;font-size:12px">
+      <?php foreach ($owned_options as $o): ?>
+        <option value="<?= htmlspecialchars($o) ?>" <?= $o===$owned_sel?'selected':'' ?>><?= $o==='없음'?'보유 아이템 없음 (진룡왕부터)':htmlspecialchars($o) ?></option>
+      <?php endforeach ?>
+    </select>
+  </form>
+  <?php endif ?>
   <?php if ($unpriced): ?>
   <div style="margin:6px 0 10px;padding:6px 10px;background:rgba(231,76,60,.12);border:1px solid rgba(231,76,60,.4);border-radius:5px;color:#e74c3c;font-size:12px">
     ⚠ 미입력 재료 <?= count($unpriced) ?>종 포함 — 이 루트 비용은 부정확 (시세를 입력하세요): <?= htmlspecialchars(implode(', ', $unpriced)) ?>

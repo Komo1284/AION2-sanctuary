@@ -50,6 +50,13 @@ chk('루트는 cost 오름차순', ($routes[0]['cost_fixed'] <= $routes[count($r
 $hasDirect = false; foreach ($routes as $r) if (mb_strpos($r['label'],'직접제작')!==false) $hasDirect=true;
 chk('직접제작 루트 존재', $hasDirect ? 1 : 0, 1);
 
+// 보유 아이템부터 계승: 빛나는 보유가 보유없음보다 저렴(체인 단축) + 보유 루트 플래그
+$ownCost = function($rs){ foreach($rs as $r) if(!empty($r['is_owned_route'])) return $r['cost_fixed']; return -1; };
+$rNone  = craft_enumerate_routes($ctx2, '응룡왕의 목걸이', []);
+$rShine = craft_enumerate_routes($ctx2, '응룡왕의 목걸이', ['빛나는 현룡왕의 목걸이']);
+chk('보유 루트 플래그 존재', ($ownCost($rShine) >= 0) ? 1 : 0, 1);
+chk('빛나는 현룡왕 보유 < 보유없음(체인 단축)', ($ownCost($rShine) < $ownCost($rNone)) ? 1 : 0, 1);
+
 // 순환 참조 종료 검증 (DB 무관, 인메모리 ctx)
 $cyc = ['price'=>['키나(통합)'=>0], 'core'=>[], 'recipes'=>[
   'A'=>[['type'=>'x','kina'=>0,'combo'=>0.25,'estimated'=>0,'inputs'=>[['B',1]]]],

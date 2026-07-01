@@ -153,25 +153,55 @@ function craft_route_from_entry(array $ctx, string $target, string $entry, strin
     return ['cost_fixed' => $cf['cost'], 'cost_ev' => $ce['cost'], 'breakdown' => $bd];
 }
 
+// 보유 티어 위쪽은 계승만 강제해 '보유 아이템부터 계승' 경로 비용 산출.
+// $ownedTier = 보유 아이템의 티어 prefix(예 '천룡왕'). 보유 아이템(기본/빛나는)은 owned로 cost 0.
+function craft_route_inherit(array $ctx, string $target, string $ownedTier, array $owned): ?array {
+    $order = ['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕','응룡왕'];
+    $idxOwned = array_search($ownedTier, $order, true);
+    if ($idxOwned === false) $idxOwned = 0;
+    $prefixOf = function($name) use ($order) {
+        foreach ($order as $p) if (mb_strpos($name, $p) === 0) return $p;   // 기본 티어 산출물만(빛나는승급 제외)
+        return null;
+    };
+    $forced = $ctx;
+    foreach ($forced['recipes'] as $out => &$rs) {
+        $p = $prefixOf($out);
+        if ($p === null) continue;                       // 빛나는승급 등 유지
+        if (array_search($p, $order, true) > $idxOwned) { // 보유 티어보다 위 → 계승 강제
+            $has = array_filter($rs, fn($r) => $r['type'] === '계승');
+            if ($has) $rs = array_values($has);
+        }
+    }
+    unset($rs);
+    if (empty($forced['recipes'][$target])) return null;
+    $mF = []; $mE = [];
+    $cf = craft_cost($target, $forced, $owned, $mF, false);
+    $ce = craft_cost($target, $forced, $owned, $mE, true);
+    if ($cf['recipe'] === null && $cf['via'] !== '보유') return null;
+    $bd = []; $mm = $mF; craft_breakdown($target, $forced, $owned, false, 1.0, $bd, $mm);
+    return ['cost_fixed' => $cf['cost'], 'cost_ev' => $ce['cost'], 'breakdown' => $bd];
+}
+
 function craft_enumerate_routes(array $ctx, string $target, array $owned): array {
     $routes = [];
-    // 1) 응룡왕 직접제작 (달인의 빛나는)
-    $direct = craft_route_from_entry($ctx, $target, $target, '달인빛나는직접', $owned);
+    // 1) 응룡왕 직접제작 (달인의 빛나는) — 맨땅 기준(보유 무관)
+    $direct = craft_route_from_entry($ctx, $target, $target, '달인빛나는직접', []);
     if ($direct) $routes[] = ['label' => '응룡왕 직접제작 (달인의 빛나는)'] + $direct;
-    // 2) 현룡왕 코어직접 → 응룡왕 계승
+    // 2) 현룡왕 코어직접 → 응룡왕 계승 — 맨땅 기준(보유 무관)
     $hyeon = craft_localize_entry('현룡왕의 목걸이', $target);
-    $r2 = craft_route_from_entry($ctx, $target, $hyeon, '코어직접', $owned);
+    $r2 = craft_route_from_entry($ctx, $target, $hyeon, '코어직접', []);
     if ($r2) $routes[] = ['label' => '현룡왕 코어직접 → 응룡왕 계승'] + $r2;
-    // 3) 보유 아이템부터 계승 (보유 없으면 진룡왕부터)
+    // 3) 보유 아이템부터 계승 (보유 없으면 진룡왕부터). 이 카드에 보유 선택 드롭다운 렌더.
+    $tiers = ['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕'];
+    $ownedTier = '진룡왕';
     if (!empty($owned)) {
-        $entry3 = $owned[0];
+        foreach ($tiers as $t) { if (mb_strpos($owned[0], $t) !== false) { $ownedTier = $t; break; } }
         $label3 = '보유 ' . $owned[0] . '부터 계승';
     } else {
-        $entry3 = craft_localize_entry('진룡왕의 목걸이', $target);
         $label3 = '진룡왕부터 계승 (보유 없음)';
     }
-    $r3 = craft_route_from_entry($ctx, $target, $entry3, '코어직접', $owned);
-    if ($r3) $routes[] = ['label' => $label3] + $r3;
+    $r3 = craft_route_inherit($ctx, $target, $ownedTier, $owned);
+    if ($r3) $routes[] = ['label' => $label3, 'is_owned_route' => true] + $r3;
     usort($routes, fn($a,$b) => $a['cost_fixed'] <=> $b['cost_fixed']);
     return $routes;
 }
