@@ -16,6 +16,25 @@ php -S localhost:8000
 
 There are no automated tests or linters.
 
+## Deployment (ALWAYS deploy after any change)
+
+**Every code change MUST be deployed to the production server immediately, then tested server-side.** Do not stop at local edits — the local machine has no PHP, so verification happens on the server.
+
+Workflow for every change:
+
+1. Edit files under `/Users/eztake/japanMES/sanctuary/` (local clone).
+2. `git add` → `git commit` (Korean commit message OK) → `git push origin main`.
+3. On the production server, pull and syntax-check:
+   ```bash
+   ssh aion-sanctuary 'cd /var/www/html/sanctuary && git pull origin main && php -l <changed_file.php>'
+   ```
+   (Remote `main` has no upstream tracking — always specify `origin main`.)
+4. Give the user the server URL to test (docroot is `/var/www/html`, so the app lives under `http://<server>/sanctuary/...`).
+
+**Constraints:** Only ever touch paths inside `/var/www/html/sanctuary/`. Never modify other hosted projects, system dirs, or global config (php.ini, nginx, apache2, systemd, MySQL/PHP-FPM). Keep local and remote pointing at the same git commit. Secrets (`sanctuary_config.json`, `.claude/`) are gitignored on the server — do not overwrite them.
+
+Server: `14.63.164.109:54122` (root), SSH alias `aion-sanctuary`, repo `https://github.com/Komo1284/AION2-sanctuary.git`.
+
 ## Architecture
 
 **Single-file routing via `index.php`**: All HTTP requests go through `index.php`, which handles session management, DB connection, POST action dispatch, and view rendering.
