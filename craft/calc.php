@@ -42,6 +42,8 @@ function craft_cost(string $item, array $ctx, array $owned, array &$memo, bool $
         $res = ['cost' => (float)$ctx['price'][$item], 'recipe' => null, 'via' => '시장'];
         $memo[$key] = $res; return $res;
     }
+    // 순환 참조 가드: 이 아이템을 계산 중에 재진입하면 MAX 비용 반환
+    $memo[$key] = ['cost' => PHP_FLOAT_MAX, 'recipe' => null, 'via' => '순환'];
     // 크래프트 가능하면 각 레시피 비용 계산
     if ($hasRecipe) {
         foreach ($ctx['recipes'][$item] as $r) {
@@ -71,7 +73,9 @@ function craft_cost(string $item, array $ctx, array $owned, array &$memo, bool $
 }
 
 // 목표까지의 재료 총소모 breakdown(잎 재료 단위로 펼침). 반환: [name => ['qty'=>, 'unit'=>, 'core'=>bool]]
-function craft_breakdown(string $item, array $ctx, array $owned, bool $ev, float $mult, array &$acc, array &$memo): void {
+function craft_breakdown(string $item, array $ctx, array $owned, bool $ev, float $mult, array &$acc, array &$memo, array $seen = []): void {
+    if (isset($seen[$item])) return;
+    $seen[$item] = true;
     if (in_array($item, $owned, true)) return;
     if (!empty($ctx['core'][$item])) {
         $acc[$item]['qty'] = ($acc[$item]['qty'] ?? 0) + $mult;
@@ -89,7 +93,7 @@ function craft_breakdown(string $item, array $ctx, array $owned, bool $ev, float
         $acc['키나(통합)']['unit'] = 1; $acc['키나(통합)']['core'] = false;
     }
     foreach ($r['inputs'] as [$mat, $qty]) {
-        craft_breakdown($mat, $ctx, $owned, $ev, $mult*$qty, $acc, $memo);
+        craft_breakdown($mat, $ctx, $owned, $ev, $mult*$qty, $acc, $memo, $seen);
     }
 }
 

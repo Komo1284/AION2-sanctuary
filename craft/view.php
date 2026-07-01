@@ -41,7 +41,12 @@ select{padding:9px 12px;background:#141828;border:1px solid #1e2840;border-radiu
   <a class="link" href="craft.php?acc=<?= $acc ?>&owned=<?= urlencode($owned_sel) ?>#prices">↓ 재료 시세 편집</a>
 </form>
 
-<?php foreach ($routes as $i => $r): ?>
+<?php foreach ($routes as $i => $r):
+  $unpriced = [];
+  foreach ($r['breakdown'] as $nm => $b) {
+      if (empty($b['core']) && (int)$b['unit'] === 0 && $b['qty'] > 0 && $nm !== '키나(통합)') $unpriced[] = $nm;
+  }
+?>
 <div class="route-card <?= $i===0?'best':'' ?>">
   <div class="route-head">
     <div class="route-label"><?= $i===0?'⭐ ':'' ?><?= htmlspecialchars($r['label']) ?></div>
@@ -50,6 +55,11 @@ select{padding:9px 12px;background:#141828;border:1px solid #1e2840;border-radiu
       <div class="route-ev">COMBO 기대값 <?= $fmt($r['cost_ev']) ?></div>
     </div>
   </div>
+  <?php if ($unpriced): ?>
+  <div style="margin:6px 0 10px;padding:6px 10px;background:rgba(231,76,60,.12);border:1px solid rgba(231,76,60,.4);border-radius:5px;color:#e74c3c;font-size:12px">
+    ⚠ 미입력 재료 <?= count($unpriced) ?>종 포함 — 이 루트 비용은 부정확 (시세를 입력하세요): <?= htmlspecialchars(implode(', ', $unpriced)) ?>
+  </div>
+  <?php endif ?>
   <table class="bd"><thead><tr><th>재료</th><th class="num">수량</th><th class="num">단가</th><th class="num">소계</th></tr></thead><tbody>
   <?php foreach ($r['breakdown'] as $name => $b): $qty=$b['qty']; $unit=$b['unit']; ?>
     <tr>

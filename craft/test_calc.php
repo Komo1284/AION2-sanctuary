@@ -1,4 +1,5 @@
 <?php
+if (php_sapi_name() !== 'cli') { http_response_code(404); exit; }
 // 서버에서 `php craft/test_calc.php` 로 실행하는 검증 스크립트
 $db_host='localhost'; $db_name='budget_manager'; $db_user='budget_user'; $db_pass='budget2026!';
 $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
@@ -48,6 +49,16 @@ chk('루트 최소 2개 이상', count($routes) >= 2 ? 1 : 0, 1);
 chk('루트는 cost 오름차순', ($routes[0]['cost_fixed'] <= $routes[count($routes)-1]['cost_fixed']) ? 1 : 0, 1);
 $hasDirect = false; foreach ($routes as $r) if (mb_strpos($r['label'],'직접제작')!==false) $hasDirect=true;
 chk('직접제작 루트 존재', $hasDirect ? 1 : 0, 1);
+
+// 순환 참조 종료 검증 (DB 무관, 인메모리 ctx)
+$cyc = ['price'=>['키나(통합)'=>0], 'core'=>[], 'recipes'=>[
+  'A'=>[['type'=>'x','kina'=>0,'combo'=>0.25,'estimated'=>0,'inputs'=>[['B',1]]]],
+  'B'=>[['type'=>'x','kina'=>0,'combo'=>0.25,'estimated'=>0,'inputs'=>[['A',1]]]],
+]];
+$mc=[]; $rc = craft_cost('A', $cyc, [], $mc, false);
+chk('순환참조 종료(무한루프 없음)', is_numeric($rc['cost']) ? 1 : 0, 1);
+$bd=[]; $mm=$mc; craft_breakdown('A', $cyc, [], false, 1.0, $bd, $mm);
+chk('순환 breakdown 종료', 1, 1);
 
 echo $fail === 0 ? "\nALL PASS\n" : "\n$fail FAILED\n";
 exit($fail === 0 ? 0 : 1);
