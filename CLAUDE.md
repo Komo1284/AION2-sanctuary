@@ -31,6 +31,8 @@ Workflow for every change:
    (Remote `main` has no upstream tracking — always specify `origin main`.)
 4. Give the user the server URL to test (docroot is `/var/www/html`, so the app lives under `http://<server>/sanctuary/...`).
 
+**NEVER destroy user data.** `craft_materials.unit_price` (and updated_at) are community-entered market prices — treat them as production user data. Do NOT `DROP`/`TRUNCATE`/`DELETE` `craft_materials`, and never blanket-`UPDATE` its prices on the live server. Recipe changes re-apply automatically: bump `CRAFT_SEED_VERSION` in `craft/seed_data.php` and the additive `craft_init_schema` rebuilds only `craft_recipes`/`craft_recipe_inputs`, leaving prices untouched. `craft/test_calc.php` snapshots+restores prices; still, prefer not to run destructive SQL against the live DB.
+
 **Constraints:** Only ever touch paths inside `/var/www/html/sanctuary/`. Never modify other hosted projects, system dirs, or global config (php.ini, nginx, apache2, systemd, MySQL/PHP-FPM). Keep local and remote pointing at the same git commit. Secrets (`sanctuary_config.json`, `.claude/`) are gitignored on the server — do not overwrite them.
 
 Server: `14.63.164.109:54122` (root), SSH alias `aion-sanctuary`, repo `https://github.com/Komo1284/AION2-sanctuary.git`.

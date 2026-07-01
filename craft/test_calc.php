@@ -7,6 +7,14 @@ $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 require_once __DIR__ . '/calc.php';
 
+// ⚠ 가격은 사용자 데이터다. 이 스크립트는 테스트를 위해 가격을 임시 변경하므로,
+//   종료 시(정상/예외/exit 모두) 원래 값으로 반드시 원복한다.
+$__price_snapshot = $pdo->query("SELECT id, unit_price, updated_at, updated_ip FROM craft_materials")->fetchAll();
+register_shutdown_function(function () use ($pdo, $__price_snapshot) {
+    $u = $pdo->prepare("UPDATE craft_materials SET unit_price=?, updated_at=?, updated_ip=? WHERE id=?");
+    foreach ($__price_snapshot as $s) { $u->execute([$s['unit_price'], $s['updated_at'], $s['updated_ip'], $s['id']]); }
+});
+
 $fail = 0;
 function chk($name, $got, $exp) {
     global $fail;

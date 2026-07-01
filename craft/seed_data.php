@@ -1,5 +1,9 @@
 <?php
 // 아이온2 응룡왕 악세서리 제작 seed 데이터 (inven 스크레이핑 기준, 2026-07-01)
+// ⚠ 레시피(craft_recipes/inputs)를 바꾸면 이 버전을 올려야 재적용됨.
+//   재료 가격(craft_materials.unit_price)은 사용자 데이터라 절대 재시딩/DROP 하지 않는다.
+define('CRAFT_SEED_VERSION', '2026-07-01.4-core-removed');
+
 function craft_seed_data(): array {
     // 공통 재료(코어/키나 외)는 category로 그룹화. is_core=1 은 항상 0원.
     $materials = [
