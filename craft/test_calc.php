@@ -60,5 +60,17 @@ chk('순환참조 종료(무한루프 없음)', is_numeric($rc['cost']) ? 1 : 0,
 $bd=[]; $mm=$mc; craft_breakdown('A', $cyc, [], false, 1.0, $bd, $mm);
 chk('순환 breakdown 종료', 1, 1);
 
+// 교환(대체가) 규칙 검증: 특정 가격 세팅 후 실질가격 min 확인
+$pdo->prepare("UPDATE craft_materials SET unit_price=? WHERE name=?")->execute([500, '달인의 빛나는 루비 목걸이']);
+$pdo->prepare("UPDATE craft_materials SET unit_price=? WHERE name=?")->execute([300, '달인의 빛나는 다이아몬드 귀걸이']);
+$pdo->prepare("UPDATE craft_materials SET unit_price=? WHERE name=?")->execute([700, '달인의 빛나는 사파이어 반지']);
+$pdo->prepare("UPDATE craft_materials SET unit_price=? WHERE name=?")->execute([50, '찬란한 루비 원석']);
+$pdo->prepare("UPDATE craft_materials SET unit_price=? WHERE name=?")->execute([20, '찬란한 오드']);
+$sctx = craft_load_context($pdo, '목걸이');
+chk('제작 계승석 = 달인빛나는 3종 최저가(300)', $sctx['price']['제작 계승석: 장신구'], 300);
+chk('찬란한 루비 원석 = min(50, 오드20)=20', $sctx['price']['찬란한 루비 원석'], 20);
+$sm = [];
+chk('계승석(영웅) 무료 = 0', craft_cost('계승석: 장신구 (영웅)', $sctx, [], $sm, false)['cost'], 0);
+
 echo $fail === 0 ? "\nALL PASS\n" : "\n$fail FAILED\n";
 exit($fail === 0 ? 0 : 1);

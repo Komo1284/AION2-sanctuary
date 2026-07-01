@@ -21,6 +21,23 @@ function craft_load_context(PDO $pdo, string $accessory): array {
             'inputs' => $inputs,
         ];
     }
+    // 교환 가능 재료: 실질가격 = min(자기 시세>0, 대체재 시세>0)
+    //  - 제작 계승석: 장신구 → 달인의 빛나는 악세 3종 중 최저가로 1:1 교환(직접구매 불가)
+    //  - 찬란한 ○○ 원석 → 찬란한 오드와 1:1 교환 (더 싼 쪽)
+    // (계승석: 장신구 (영웅)은 is_core=1 처리로 항상 무료)
+    $subs = [
+        '제작 계승석: 장신구' => ['달인의 빛나는 루비 목걸이', '달인의 빛나는 다이아몬드 귀걸이', '달인의 빛나는 사파이어 반지'],
+        '찬란한 루비 원석'     => ['찬란한 오드'],
+        '찬란한 다이아몬드 원석' => ['찬란한 오드'],
+        '찬란한 사파이어 원석'   => ['찬란한 오드'],
+    ];
+    foreach ($subs as $item => $alts) {
+        if (!array_key_exists($item, $price)) continue;
+        $cands = [];
+        if ($price[$item] > 0) $cands[] = $price[$item];
+        foreach ($alts as $a) { if (isset($price[$a]) && $price[$a] > 0) $cands[] = $price[$a]; }
+        $price[$item] = $cands ? min($cands) : 0;
+    }
     return ['price' => $price, 'core' => $core, 'recipes' => $recipes];
 }
 

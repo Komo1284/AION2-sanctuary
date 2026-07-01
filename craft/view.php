@@ -63,7 +63,7 @@ select{padding:9px 12px;background:#141828;border:1px solid #1e2840;border-radiu
   <table class="bd"><thead><tr><th>재료</th><th class="num">수량</th><th class="num">단가</th><th class="num">소계</th></tr></thead><tbody>
   <?php foreach ($r['breakdown'] as $name => $b): $qty=$b['qty']; $unit=$b['unit']; ?>
     <tr>
-      <td><?= htmlspecialchars($name) ?><?= !empty($b['core'])?'<span class="badge">코어·무료</span>':'' ?></td>
+      <td><?= htmlspecialchars($name) ?><?= !empty($b['core'])?'<span class="badge">무료</span>':'' ?></td>
       <td class="num"><?= $fmt($qty) ?></td>
       <td class="num"><?= !empty($b['core'])?'0':$fmt($unit) ?></td>
       <td class="num"><?= $fmt($qty*$unit) ?></td>
@@ -74,10 +74,12 @@ select{padding:9px 12px;background:#141828;border:1px solid #1e2840;border-radiu
 <?php endforeach ?>
 
 <h2 id="prices" style="font-size:18px;color:#f0c96a;margin:28px 0 12px">💰 재료 시세 (공개 편집)</h2>
-<p style="font-size:12px;color:#8a9ab8;margin-bottom:12px">누구나 현재 시세로 갱신할 수 있습니다. 코어는 시즌 무료라 항상 0입니다.</p>
+<p style="font-size:12px;color:#8a9ab8;margin-bottom:12px">누구나 현재 시세로 갱신할 수 있습니다. 코어·계승석(영웅)은 무료라 항상 0입니다.<br>
+· <b>제작 계승석</b>은 달인의 빛나는 악세 3종 중 최저가로 자동 계산됩니다(직접 입력 없음).<br>
+· <b>찬란한 원석</b>은 찬란한 오드와 1:1 교환되어, 원석·오드 중 더 싼 쪽 가격이 적용됩니다.</p>
 <table class="bd"><thead><tr><th>재료</th><th>분류</th><th class="num">단가</th><th>최종 갱신</th><th></th></tr></thead><tbody>
 <?php
-$mrows = $pdo->query("SELECT name,unit_price,is_core,category,updated_at,updated_ip FROM craft_materials WHERE is_core=0 AND category<>'산출물' AND category<>'키나' ORDER BY category,name")->fetchAll();
+$mrows = $pdo->query("SELECT name,unit_price,is_core,category,updated_at,updated_ip FROM craft_materials WHERE is_core=0 AND category<>'산출물' AND category<>'키나' AND category<>'계승석' ORDER BY category,name")->fetchAll();
 foreach ($mrows as $m): ?>
   <tr><form method="post">
     <input type="hidden" name="update_price" value="1">
