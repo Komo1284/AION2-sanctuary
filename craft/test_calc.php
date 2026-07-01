@@ -31,6 +31,12 @@ $memo = [];
 $rs = craft_cost('빛나는 진룡왕의 목걸이', $ctx, [], $memo, false);
 chk('빛나는 진룡왕 = 37 + 700000', $rs['cost'], 700037);
 
+// EV(COMBO) 모드: 빛나는승급 키나를 콤보율(0.25)만큼 할인 → 700000*(1-0.25)=525000 → 37+525000=525037
+$memo = [];
+$ev = craft_cost('빛나는 진룡왕의 목걸이', $ctx, [], $memo, true);
+chk('EV 빛나는 진룡왕 = 37 + 525000', $ev['cost'], 525037);
+chk('EV cost < 확정 cost', $ev['cost'] < $rs['cost'] ? 1 : 0, 1);
+
 // 보유 아이템: 현룡왕 보유 시 현룡왕 cost=0
 $memo = [];
 $ro = craft_cost('현룡왕의 목걸이', $ctx, ['현룡왕의 목걸이'], $memo, false);
