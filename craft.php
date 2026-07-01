@@ -24,7 +24,7 @@ $target = "응룡왕의 {$acc}";
 $owned_sel = $_GET['owned'] ?? '없음';
 $owned = ($owned_sel === '없음') ? [] : [$owned_sel];
 
-// TODO Task 5: require_once __DIR__ . '/craft/actions.php';
+require_once __DIR__ . '/craft/actions.php';
 $ctx = craft_load_context($pdo, $acc);
 $routes = craft_enumerate_routes($ctx, $target, $owned);
 

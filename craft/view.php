@@ -63,5 +63,23 @@ select{padding:9px 12px;background:#141828;border:1px solid #1e2840;border-radiu
 </div>
 <?php endforeach ?>
 
-<!-- 시세 편집표는 Task 6에서 추가(anchor id=prices) -->
+<h2 id="prices" style="font-size:18px;color:#f0c96a;margin:28px 0 12px">💰 재료 시세 (공개 편집)</h2>
+<p style="font-size:12px;color:#8a9ab8;margin-bottom:12px">누구나 현재 시세로 갱신할 수 있습니다. 코어는 시즌 무료라 항상 0입니다.</p>
+<table class="bd"><thead><tr><th>재료</th><th>분류</th><th class="num">단가</th><th>최종 갱신</th><th></th></tr></thead><tbody>
+<?php
+$mrows = $pdo->query("SELECT name,unit_price,is_core,category,updated_at,updated_ip FROM craft_materials WHERE is_core=0 AND category<>'산출물' AND category<>'키나' ORDER BY category,name")->fetchAll();
+foreach ($mrows as $m): ?>
+  <tr><form method="post">
+    <input type="hidden" name="update_price" value="1">
+    <input type="hidden" name="acc" value="<?= htmlspecialchars($acc) ?>">
+    <input type="hidden" name="owned" value="<?= htmlspecialchars($owned_sel) ?>">
+    <input type="hidden" name="material" value="<?= htmlspecialchars($m['name']) ?>">
+    <td><?= htmlspecialchars($m['name']) ?></td>
+    <td style="color:#8a9ab8"><?= htmlspecialchars($m['category']) ?></td>
+    <td class="num"><input name="price" type="number" min="0" value="<?= (int)$m['unit_price'] ?>" style="width:120px;text-align:right;padding:5px;background:#0a0c14;border:1px solid #1e2840;border-radius:5px;color:#e8eaf0"></td>
+    <td style="color:#8a9ab8;font-size:12px"><?= $m['updated_at'] ? htmlspecialchars($m['updated_at']) : '—' ?></td>
+    <td><button style="padding:5px 12px;background:linear-gradient(135deg,#8a6830,#c9a84c);border:none;border-radius:5px;color:#0a0c14;font-weight:700;cursor:pointer">저장</button></td>
+  </form></tr>
+<?php endforeach ?>
+</tbody></table>
 </div></body></html>
