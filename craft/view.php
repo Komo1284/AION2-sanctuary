@@ -82,4 +82,34 @@ foreach ($mrows as $m): ?>
   </form></tr>
 <?php endforeach ?>
 </tbody></table>
+
+<?php if ($is_admin): ?>
+<h2 id="recipes" style="font-size:18px;color:#f0c96a;margin:28px 0 12px">🛠 레시피 편집 (관리자)</h2>
+<?php
+$recs = $pdo->prepare("SELECT * FROM craft_recipes WHERE accessory=? ORDER BY tier,recipe_type");
+$recs->execute([$acc]);
+foreach ($recs->fetchAll() as $rec):
+  $inp = $pdo->prepare("SELECT material_name,qty FROM craft_recipe_inputs WHERE recipe_id=?");
+  $inp->execute([$rec['id']]);
+  $lines = array_map(fn($x)=>$x['material_name'].' x'.$x['qty'], $inp->fetchAll());
+?>
+<div class="route-card" style="<?= $rec['is_estimated']?'border-color:#e74c3c':'' ?>">
+  <div style="font-weight:700;margin-bottom:8px"><?= htmlspecialchars($rec['output_name']) ?>
+    <span class="badge"><?= htmlspecialchars($rec['recipe_type']) ?></span>
+    <?= $rec['is_estimated']?'<span class="badge" style="background:rgba(231,76,60,.2);color:#e74c3c">추정치</span>':'' ?></div>
+  <form method="post" onsubmit="this.inputs.value=JSON.stringify(this.raw.value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const m=l.match(/^(.*)\sx(\d+)$/);return m?[m[1].trim(),parseInt(m[2])]:null}).filter(Boolean))">
+    <input type="hidden" name="edit_recipe" value="1">
+    <input type="hidden" name="recipe_id" value="<?= (int)$rec['id'] ?>">
+    <input type="hidden" name="acc" value="<?= htmlspecialchars($acc) ?>">
+    <input type="hidden" name="inputs">
+    <textarea name="raw" rows="<?= max(2,count($lines)) ?>" style="width:100%;background:#0a0c14;border:1px solid #1e2840;border-radius:6px;color:#e8eaf0;padding:8px;font-family:inherit"><?= htmlspecialchars(implode("\n",$lines)) ?></textarea>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:8px">
+      <label style="font-size:13px">키나 <input name="kina_cost" type="number" min="0" value="<?= (int)$rec['kina_cost'] ?>" style="width:130px;padding:5px;background:#0a0c14;border:1px solid #1e2840;border-radius:5px;color:#e8eaf0"></label>
+      <label style="font-size:13px"><input type="checkbox" name="is_estimated" <?= $rec['is_estimated']?'checked':'' ?>> 추정치</label>
+      <button style="margin-left:auto;padding:6px 16px;background:linear-gradient(135deg,#8a6830,#c9a84c);border:none;border-radius:5px;color:#0a0c14;font-weight:700;cursor:pointer">저장</button>
+    </div>
+  </form>
+</div>
+<?php endforeach ?>
+<?php endif ?>
 </div></body></html>
