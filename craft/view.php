@@ -9,19 +9,21 @@ foreach (['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕'] as $t) $o
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Noto Sans KR',sans-serif;background:#0a0c14;color:#e8eaf0;padding:24px}
-.wrap{max-width:1000px;margin:0 auto}
+.wrap{max-width:1400px;margin:0 auto}
 h1{font-size:22px;color:#f0c96a;margin-bottom:16px}
 .controls{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
 select{padding:9px 12px;background:#141828;border:1px solid #1e2840;border-radius:6px;color:#e8eaf0;font-family:inherit}
-.route-card{background:#141828;border:1px solid #1e2840;border-radius:10px;padding:16px;margin-bottom:12px}
+.routes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:start;margin-bottom:20px}
+@media(max-width:900px){.routes-grid{grid-template-columns:1fr}}
+.route-card{background:#141828;border:1px solid #1e2840;border-radius:10px;padding:16px}
 .route-card.best{border-color:#c9a84c;box-shadow:0 0 0 1px rgba(201,168,76,.3)}
-.route-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
-.route-label{font-size:15px;font-weight:700}
-.route-cost{font-size:20px;font-weight:900;color:#f0c96a}
+.route-head{margin-bottom:10px;border-bottom:1px solid #1e2840;padding-bottom:10px}
+.route-label{font-size:14px;font-weight:700;line-height:1.35;min-height:38px}
+.route-cost{font-size:22px;font-weight:900;color:#f0c96a;margin-top:8px}
 .route-ev{font-size:12px;color:#8a9ab8}
-.bd{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
-.bd th,.bd td{padding:5px 8px;border-bottom:1px solid rgba(30,40,64,.5);text-align:left}
-.bd td.num{text-align:right}
+.bd{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px}
+.bd th,.bd td{padding:4px 6px;border-bottom:1px solid rgba(30,40,64,.5);text-align:left}
+.bd td.num{text-align:right;white-space:nowrap}
 .badge{display:inline-block;font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(201,168,76,.15);color:#c9a84c;margin-left:6px}
 .link{color:#5a9bf5;text-decoration:none;font-size:13px}
 </style></head><body><div class="wrap">
@@ -41,6 +43,7 @@ select{padding:9px 12px;background:#141828;border:1px solid #1e2840;border-radiu
   <a class="link" href="craft.php?acc=<?= $acc ?>&owned=<?= urlencode($owned_sel) ?>#prices">↓ 재료 시세 편집</a>
 </form>
 
+<div class="routes-grid">
 <?php foreach ($routes as $i => $r):
   $unpriced = [];
   foreach ($r['breakdown'] as $nm => $b) {
@@ -50,10 +53,8 @@ select{padding:9px 12px;background:#141828;border:1px solid #1e2840;border-radiu
 <div class="route-card <?= $i===0?'best':'' ?>">
   <div class="route-head">
     <div class="route-label"><?= $i===0?'⭐ ':'' ?><?= htmlspecialchars($r['label']) ?></div>
-    <div style="text-align:right">
-      <div class="route-cost"><?= $fmt($r['cost_fixed']) ?></div>
-      <div class="route-ev">COMBO 기대값 <?= $fmt($r['cost_ev']) ?></div>
-    </div>
+    <div class="route-cost"><?= $fmt($r['cost_fixed']) ?></div>
+    <div class="route-ev">COMBO 기대값 <?= $fmt($r['cost_ev']) ?></div>
   </div>
   <?php if ($unpriced): ?>
   <div style="margin:6px 0 10px;padding:6px 10px;background:rgba(231,76,60,.12);border:1px solid rgba(231,76,60,.4);border-radius:5px;color:#e74c3c;font-size:12px">
@@ -72,6 +73,7 @@ select{padding:9px 12px;background:#141828;border:1px solid #1e2840;border-radiu
   </tbody></table>
 </div>
 <?php endforeach ?>
+</div>
 
 <h2 id="prices" style="font-size:18px;color:#f0c96a;margin:28px 0 12px">💰 재료 시세 (공개 편집)</h2>
 <p style="font-size:12px;color:#8a9ab8;margin-bottom:12px">누구나 현재 시세로 갱신할 수 있습니다. 코어·계승석(영웅)은 무료라 항상 0입니다.<br>

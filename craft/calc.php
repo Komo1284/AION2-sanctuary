@@ -155,19 +155,23 @@ function craft_route_from_entry(array $ctx, string $target, string $entry, strin
 
 function craft_enumerate_routes(array $ctx, string $target, array $owned): array {
     $routes = [];
-    // 1) 직접제작(달인의 빛나는)
+    // 1) 응룡왕 직접제작 (달인의 빛나는)
     $direct = craft_route_from_entry($ctx, $target, $target, '달인빛나는직접', $owned);
     if ($direct) $routes[] = ['label' => '응룡왕 직접제작 (달인의 빛나는)'] + $direct;
-    // 2) 진입티어별 코어직접 → 상위 계승
-    $entries = ['현룡왕의 목걸이'=>'현룡왕 코어직접 → 응룡왕 계승',
-                '천룡왕의 목걸이'=>'천룡왕 코어직접 → 계승체인',
-                '진룡왕의 목걸이'=>'전체 계승 (진룡왕 코어직접부터)'];
-    // 악세서리 접두만 목걸이가 아니면 output_name 치환 필요 → 호출부에서 실제 target 접미 사용
-    foreach ($entries as $entry => $label) {
-        $entryName = craft_localize_entry($entry, $target);   // 목걸이/귀걸이/반지 접미 맞춤
-        $r = craft_route_from_entry($ctx, $target, $entryName, '코어직접', $owned);
-        if ($r) $routes[] = ['label' => $label] + $r;
+    // 2) 현룡왕 코어직접 → 응룡왕 계승
+    $hyeon = craft_localize_entry('현룡왕의 목걸이', $target);
+    $r2 = craft_route_from_entry($ctx, $target, $hyeon, '코어직접', $owned);
+    if ($r2) $routes[] = ['label' => '현룡왕 코어직접 → 응룡왕 계승'] + $r2;
+    // 3) 보유 아이템부터 계승 (보유 없으면 진룡왕부터)
+    if (!empty($owned)) {
+        $entry3 = $owned[0];
+        $label3 = '보유 ' . $owned[0] . '부터 계승';
+    } else {
+        $entry3 = craft_localize_entry('진룡왕의 목걸이', $target);
+        $label3 = '진룡왕부터 계승 (보유 없음)';
     }
+    $r3 = craft_route_from_entry($ctx, $target, $entry3, '코어직접', $owned);
+    if ($r3) $routes[] = ['label' => $label3] + $r3;
     usort($routes, fn($a,$b) => $a['cost_fixed'] <=> $b['cost_fixed']);
     return $routes;
 }
