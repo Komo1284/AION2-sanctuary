@@ -6,6 +6,7 @@ $pdo = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, 
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 require_once __DIR__ . '/calc.php';
+require_once __DIR__ . '/items.php';
 
 // ⚠ 가격은 사용자 데이터다. 이 스크립트는 테스트를 위해 가격을 임시 변경하므로,
 //   종료 시(정상/예외/exit 모두) 원래 값으로 반드시 원복한다.
@@ -52,7 +53,7 @@ $ro = craft_cost('현룡왕의 목걸이', $ctx, ['현룡왕의 목걸이'], $me
 chk('현룡왕 보유 → 0', $ro['cost'], 0);
 
 $ctx2 = craft_load_context($pdo, '목걸이');
-$routes = craft_enumerate_routes($ctx2, '응룡왕의 목걸이', []);
+$routes = craft_enumerate_routes($ctx2, '목걸이', []);
 chk('루트 최소 2개 이상', count($routes) >= 2 ? 1 : 0, 1);
 chk('루트는 cost 오름차순', ($routes[0]['cost_fixed'] <= $routes[count($routes)-1]['cost_fixed']) ? 1 : 0, 1);
 $hasDirect = false; foreach ($routes as $r) if (mb_strpos($r['label'],'직접제작')!==false) $hasDirect=true;
@@ -60,10 +61,17 @@ chk('직접제작 루트 존재', $hasDirect ? 1 : 0, 1);
 
 // 보유 아이템부터 계승: 빛나는 보유가 보유없음보다 저렴(체인 단축) + 보유 루트 플래그
 $ownCost = function($rs){ foreach($rs as $r) if(!empty($r['is_owned_route'])) return $r['cost_fixed']; return -1; };
-$rNone  = craft_enumerate_routes($ctx2, '응룡왕의 목걸이', []);
-$rShine = craft_enumerate_routes($ctx2, '응룡왕의 목걸이', ['빛나는 현룡왕의 목걸이']);
+$rNone  = craft_enumerate_routes($ctx2, '목걸이', []);
+$rShine = craft_enumerate_routes($ctx2, '목걸이', ['빛나는 현룡왕의 목걸이']);
 chk('보유 루트 플래그 존재', ($ownCost($rShine) >= 0) ? 1 : 0, 1);
 chk('빛나는 현룡왕 보유 < 보유없음(체인 단축)', ($ownCost($rShine) < $ownCost($rNone)) ? 1 : 0, 1);
+
+// 품목 헬퍼 + 카테고리 주도 계승석 검증
+chk('대검은 무기군', craft_item_group('대검') === '무기' ? 1 : 0, 1);
+chk('대검 목표 = 창룡왕의 대검', craft_target_for('대검') === '창룡왕의 대검' ? 1 : 0, 1);
+chk('투구 목표 = 응룡왕의 투구', craft_target_for('투구') === '응룡왕의 투구' ? 1 : 0, 1);
+chk('목걸이 보유상한 = 현룡왕', craft_owned_max_tier('목걸이') === '현룡왕' ? 1 : 0, 1);
+chk('대검 보유상한 = 응룡왕', craft_owned_max_tier('대검') === '응룡왕' ? 1 : 0, 1);
 
 // 순환 참조 종료 검증 (DB 무관, 인메모리 ctx)
 $cyc = ['price'=>['키나(통합)'=>0], 'core'=>[], 'recipes'=>[
