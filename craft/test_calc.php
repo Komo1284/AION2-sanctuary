@@ -112,5 +112,12 @@ $mroutes = craft_enumerate_routes($mctx, '마법서', []);
 chk('마법서 루트 2개 이상', count($mroutes) >= 2 ? 1 : 0, 1);
 chk('법서는 품목 아님(마법서로 대체)', in_array('법서', craft_all_items(), true) ? 0 : 1, 1);
 
+// 방어구(투구): 응룡왕 목표 + 계승석 대체가(방어구군)
+$actx = craft_load_context($pdo, '투구');
+$aroutes = craft_enumerate_routes($actx, '투구', []);
+chk('투구 루트 2개 이상', count($aroutes) >= 2 ? 1 : 0, 1);
+chk('투구 라벨은 응룡왕(창룡왕 아님)', mb_strpos(implode('|', array_column($aroutes,'label')), '창룡왕') === false ? 1 : 0, 1);
+chk('제작 계승석: 방어구 = 중간아이템-방어구 최저가(1)', $actx['price']['제작 계승석: 방어구'], 1);
+
 echo $fail === 0 ? "\nALL PASS\n" : "\n$fail FAILED\n";
 exit($fail === 0 ? 0 : 1);
