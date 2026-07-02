@@ -89,9 +89,11 @@ $pdo->prepare("UPDATE craft_materials SET unit_price=? WHERE name=?")->execute([
 $pdo->prepare("UPDATE craft_materials SET unit_price=? WHERE name=?")->execute([700, '달인의 빛나는 사파이어 반지']);
 $pdo->prepare("UPDATE craft_materials SET unit_price=? WHERE name=?")->execute([50, '찬란한 루비 원석']);
 $pdo->prepare("UPDATE craft_materials SET unit_price=? WHERE name=?")->execute([20, '찬란한 오드']);
+$pdo->prepare("UPDATE craft_materials SET unit_price=? WHERE name=?")->execute([50, '찬란한 이그드라실 나무']);
 $sctx = craft_load_context($pdo, '목걸이');
 chk('제작 계승석 = 달인빛나는 3종 최저가(300)', $sctx['price']['제작 계승석: 장신구'], 300);
 chk('찬란한 루비 원석 = min(50, 오드20)=20', $sctx['price']['찬란한 루비 원석'], 20);
+chk('찬란한 이그드라실 나무 = 오드가(20)', $sctx['price']['찬란한 이그드라실 나무'], 20);
 $sm = [];
 chk('계승석(영웅) 무료 = 0', craft_cost('계승석: 장신구 (영웅)', $sctx, [], $sm, false)['cost'], 0);
 

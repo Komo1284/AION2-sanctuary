@@ -34,12 +34,12 @@ function craft_load_context(PDO $pdo, string $accessory): array {
         if (!array_key_exists($key, $price)) continue;
         $price[$key] = !empty($byGroup[$grp]) ? min($byGroup[$grp]) : 0;
     }
-    // 2) 원석·광석 ↔ 찬란한 오드 1:1 교환 → 더 싼 쪽
+    // 2) 원석·광석·나무 ↔ 찬란한 오드 1:1 교환 → 더 싼 쪽
     $od = $price['찬란한 오드'] ?? 0;
     if ($od > 0) {
         foreach ($price as $n => $v) {
             $c = $cat[$n] ?? '';
-            if ($c === '원석' || $c === '광석') $price[$n] = ($v > 0) ? min($v, $od) : $od;
+            if ($c === '원석' || $c === '광석' || $c === '나무') $price[$n] = ($v > 0) ? min($v, $od) : $od;
         }
     }
     return ['price' => $price, 'core' => $core, 'recipes' => $recipes];
