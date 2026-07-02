@@ -119,5 +119,13 @@ chk('투구 루트 2개 이상', count($aroutes) >= 2 ? 1 : 0, 1);
 chk('투구 라벨은 응룡왕(창룡왕 아님)', mb_strpos(implode('|', array_column($aroutes,'label')), '창룡왕') === false ? 1 : 0, 1);
 chk('제작 계승석: 방어구 = 중간아이템-방어구 최저가(1)', $actx['price']['제작 계승석: 방어구'], 1);
 
+// 방어구 실제 아이템명 정합 (상의→흉갑, 하의→각반, 신발→장화)
+foreach (['흉갑','각반','장화'] as $slot) {
+    $sctx2 = craft_load_context($pdo, $slot);
+    $sr = craft_enumerate_routes($sctx2, $slot, []);
+    chk("{$slot} 루트 2개 이상", count($sr) >= 2 ? 1 : 0, 1);
+}
+chk('상의는 품목 아님(흉갑으로 대체)', in_array('상의', craft_all_items(), true) ? 0 : 1, 1);
+
 echo $fail === 0 ? "\nALL PASS\n" : "\n$fail FAILED\n";
 exit($fail === 0 ? 0 : 1);
