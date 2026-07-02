@@ -95,5 +95,14 @@ chk('찬란한 루비 원석 = min(50, 오드20)=20', $sctx['price']['찬란한 
 $sm = [];
 chk('계승석(영웅) 무료 = 0', craft_cost('계승석: 장신구 (영웅)', $sctx, [], $sm, false)['cost'], 0);
 
+// 무기(대검): 창룡왕 목표 루트 검증
+$wctx = craft_load_context($pdo, '대검');
+$wroutes = craft_enumerate_routes($wctx, '대검', []);
+chk('대검 루트 2개 이상', count($wroutes) >= 2 ? 1 : 0, 1);
+$wLabels = implode('|', array_column($wroutes, 'label'));
+chk('대검 창룡왕 라벨', mb_strpos($wLabels, '창룡왕') !== false ? 1 : 0, 1);
+$wbd = null; foreach ($wroutes as $r) if (!empty($r['is_owned_route'])) $wbd = $r['breakdown'];
+chk('대검 보유루트에 폭주한 공포 재료 포함', ($wbd && isset($wbd['폭주한 공포의 사념'])) ? 1 : 0, 1);
+
 echo $fail === 0 ? "\nALL PASS\n" : "\n$fail FAILED\n";
 exit($fail === 0 ? 0 : 1);
