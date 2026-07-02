@@ -1,11 +1,13 @@
 <?php
 // 비용 계산 엔진 — 재료를 노드로 보는 재귀 메모이제이션 min-cost
+require_once __DIR__ . '/items.php';
 
 function craft_load_context(PDO $pdo, string $accessory): array {
-    $price = []; $core = [];
-    foreach ($pdo->query("SELECT name,unit_price,is_core FROM craft_materials") as $m) {
+    $price = []; $core = []; $cat = [];
+    foreach ($pdo->query("SELECT name,unit_price,is_core,category FROM craft_materials") as $m) {
         $price[$m['name']] = (int)$m['unit_price'];
         $core[$m['name']]  = (int)$m['is_core'] === 1;
+        $cat[$m['name']]   = $m['category'];
     }
     $recipes = [];
     $rs = $pdo->prepare("SELECT * FROM craft_recipes WHERE accessory = ? ORDER BY id");
@@ -22,22 +24,23 @@ function craft_load_context(PDO $pdo, string $accessory): array {
         ];
     }
     // 교환 가능 재료: 실질가격 = min(자기 시세>0, 대체재 시세>0)
-    //  - 제작 계승석: 장신구 → 달인의 빛나는 악세 3종 중 최저가로 1:1 교환(직접구매 불가)
-    //  - 찬란한 ○○ 원석 → 찬란한 오드와 1:1 교환 (더 싼 쪽)
-    // (계승석: 장신구 (영웅)은 is_core=1 처리로 항상 무료)
-    //  self=false → 직접구매 불가(대체재 최저가만), self=true → 자기 시세와 대체재 비교
-    $subs = [
-        '제작 계승석: 장신구'   => ['self' => false, 'alts' => ['달인의 빛나는 루비 목걸이', '달인의 빛나는 다이아몬드 귀걸이', '달인의 빛나는 사파이어 반지']],
-        '찬란한 루비 원석'       => ['self' => true,  'alts' => ['찬란한 오드']],
-        '찬란한 다이아몬드 원석' => ['self' => true,  'alts' => ['찬란한 오드']],
-        '찬란한 사파이어 원석'   => ['self' => true,  'alts' => ['찬란한 오드']],
-    ];
-    foreach ($subs as $item => $cfg) {
-        if (!array_key_exists($item, $price)) continue;
-        $cands = [];
-        if ($cfg['self'] && $price[$item] > 0) $cands[] = $price[$item];
-        foreach ($cfg['alts'] as $a) { if (isset($price[$a]) && $price[$a] > 0) $cands[] = $price[$a]; }
-        $price[$item] = $cands ? min($cands) : 0;
+    // 1) 제작 계승석: {군} = 해당 군 달인의 빛나는(중간아이템-{군}) 최저가. 직접구매 불가 → 자기 시세 무시.
+    $byGroup = [];
+    foreach ($price as $n => $v) {
+        if ($v > 0 && preg_match('/^중간아이템-(.+)$/u', $cat[$n] ?? '', $m2)) $byGroup[$m2[1]][] = $v;
+    }
+    foreach (['무기','방어구','장신구'] as $grp) {
+        $key = "제작 계승석: $grp";
+        if (!array_key_exists($key, $price)) continue;
+        $price[$key] = !empty($byGroup[$grp]) ? min($byGroup[$grp]) : 0;
+    }
+    // 2) 원석·광석 ↔ 찬란한 오드 1:1 교환 → 더 싼 쪽
+    $od = $price['찬란한 오드'] ?? 0;
+    if ($od > 0) {
+        foreach ($price as $n => $v) {
+            $c = $cat[$n] ?? '';
+            if ($c === '원석' || $c === '광석') $price[$n] = ($v > 0) ? min($v, $od) : $od;
+        }
     }
     return ['price' => $price, 'core' => $core, 'recipes' => $recipes];
 }
@@ -119,7 +122,7 @@ function craft_breakdown(string $item, array $ctx, array $owned, bool $ev, float
 // $entry = 진입 티어 output_name(예 '천룡왕의 목걸이'), $entryType = '코어직접'|'달인빛나는직접'
 function craft_route_from_entry(array $ctx, string $target, string $entry, string $entryType, array $owned): ?array {
     // 티어 순서 확보
-    $order = ['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕','응룡왕'];
+    $order = ['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕','응룡왕','창룡왕'];
     // output_name → 티어 prefix
     $prefixOf = function($name) use ($order) {
         foreach ($order as $p) if (mb_strpos($name, $p) === 0) return $p;
@@ -156,7 +159,7 @@ function craft_route_from_entry(array $ctx, string $target, string $entry, strin
 // 보유 티어 위쪽은 계승만 강제해 '보유 아이템부터 계승' 경로 비용 산출.
 // $ownedTier = 보유 아이템의 티어 prefix(예 '천룡왕'). 보유 아이템(기본/빛나는)은 owned로 cost 0.
 function craft_route_inherit(array $ctx, string $target, string $ownedTier, array $owned): ?array {
-    $order = ['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕','응룡왕'];
+    $order = ['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕','응룡왕','창룡왕'];
     $idxOwned = array_search($ownedTier, $order, true);
     if ($idxOwned === false) $idxOwned = 0;
     $prefixOf = function($name) use ($order) {
@@ -182,17 +185,18 @@ function craft_route_inherit(array $ctx, string $target, string $ownedTier, arra
     return ['cost_fixed' => $cf['cost'], 'cost_ev' => $ce['cost'], 'breakdown' => $bd];
 }
 
-function craft_enumerate_routes(array $ctx, string $target, array $owned): array {
+function craft_enumerate_routes(array $ctx, string $item, array $owned): array {
+    $target = craft_target_for($item);
+    $top    = craft_top_tier($item);
     $routes = [];
-    // 1) 응룡왕 직접제작 (달인의 빛나는) — 맨땅 기준(보유 무관)
-    $direct = craft_route_from_entry($ctx, $target, $target, '달인빛나는직접', []);
-    if ($direct) $routes[] = ['label' => '응룡왕 직접제작 (달인의 빛나는)'] + $direct;
-    // 2) 현룡왕 코어직접 → 응룡왕 계승 — 맨땅 기준(보유 무관)
-    $hyeon = craft_localize_entry('현룡왕의 목걸이', $target);
-    $r2 = craft_route_from_entry($ctx, $target, $hyeon, '코어직접', []);
-    if ($r2) $routes[] = ['label' => '현룡왕 코어직접 → 응룡왕 계승'] + $r2;
-    // 3) 보유 아이템부터 계승 (보유 없으면 진룡왕부터). 이 카드에 보유 선택 드롭다운 렌더.
-    $tiers = ['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕'];
+    // 1) 응룡왕 직접제작 (달인의 빛나는). 무기는 이어서 창룡왕 계승까지.
+    $r1 = craft_route_from_entry($ctx, $target, "응룡왕의 {$item}", '달인빛나는직접', []);
+    if ($r1) $routes[] = ['label' => $top === '창룡왕' ? '응룡왕 직접제작 → 창룡왕 계승' : '응룡왕 직접제작 (달인의 빛나는)'] + $r1;
+    // 2) 현룡왕 코어직접 → 계승 체인 (맨땅 기준)
+    $r2 = craft_route_from_entry($ctx, $target, "현룡왕의 {$item}", '코어직접', []);
+    if ($r2) $routes[] = ['label' => $top === '창룡왕' ? '현룡왕 코어직접 → 계승 체인' : '현룡왕 코어직접 → 응룡왕 계승'] + $r2;
+    // 3) 보유 아이템부터 계승 (보유 없으면 진룡왕부터)
+    $tiers = ['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕','응룡왕'];
     $ownedTier = '진룡왕';
     if (!empty($owned)) {
         foreach ($tiers as $t) { if (mb_strpos($owned[0], $t) !== false) { $ownedTier = $t; break; } }
@@ -204,14 +208,4 @@ function craft_enumerate_routes(array $ctx, string $target, array $owned): array
     if ($r3) $routes[] = ['label' => $label3, 'is_owned_route' => true] + $r3;
     usort($routes, fn($a,$b) => $a['cost_fixed'] <=> $b['cost_fixed']);
     return $routes;
-}
-
-// '현룡왕의 목걸이' 형태 → target 접미(목걸이/귀걸이/반지)로 치환
-function craft_localize_entry(string $entry, string $target): string {
-    foreach (['목걸이','귀걸이','반지'] as $suf) {
-        if (mb_substr($target, -mb_strlen($suf)) === $suf) {
-            return preg_replace('/(목걸이|귀걸이|반지)$/u', $suf, $entry);
-        }
-    }
-    return $entry;
 }

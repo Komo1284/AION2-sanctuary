@@ -19,13 +19,13 @@ $is_admin = isset($_SESSION['sanctuary_admin']) && $_SESSION['sanctuary_admin'] 
 require_once __DIR__ . '/craft/calc.php';
 
 $acc = $_GET['acc'] ?? '목걸이';
-if (!in_array($acc, ['목걸이','귀걸이','반지'], true)) $acc = '목걸이';
-$target = "응룡왕의 {$acc}";
+if (!in_array($acc, craft_all_items(), true)) $acc = '목걸이';
+$target = craft_target_for($acc);
 $owned_sel = $_GET['owned'] ?? '없음';
 $owned = ($owned_sel === '없음') ? [] : [$owned_sel];
 
 require_once __DIR__ . '/craft/actions.php';
 $ctx = craft_load_context($pdo, $acc);
-$routes = craft_enumerate_routes($ctx, $target, $owned);
+$routes = craft_enumerate_routes($ctx, $acc, $owned);
 
 require __DIR__ . '/craft/view.php';
