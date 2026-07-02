@@ -104,5 +104,11 @@ chk('대검 창룡왕 라벨', mb_strpos($wLabels, '창룡왕') !== false ? 1 : 
 $wbd = null; foreach ($wroutes as $r) if (!empty($r['is_owned_route'])) $wbd = $r['breakdown'];
 chk('대검 보유루트에 폭주한 공포 재료 포함', ($wbd && isset($wbd['폭주한 공포의 사념'])) ? 1 : 0, 1);
 
+// 마법서(구 법서) 품목명 정합: items.php ↔ seed accessory명
+$mctx = craft_load_context($pdo, '마법서');
+$mroutes = craft_enumerate_routes($mctx, '마법서', []);
+chk('마법서 루트 2개 이상', count($mroutes) >= 2 ? 1 : 0, 1);
+chk('법서는 품목 아님(마법서로 대체)', in_array('법서', craft_all_items(), true) ? 0 : 1, 1);
+
 echo $fail === 0 ? "\nALL PASS\n" : "\n$fail FAILED\n";
 exit($fail === 0 ? 0 : 1);
