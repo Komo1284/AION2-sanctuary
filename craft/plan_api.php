@@ -173,7 +173,7 @@ if (!defined('PLAN_API_TEST_ONLY')) {
     if (($_GET['plan'] ?? '') === 'search') {
         $nick = trim($_GET['nick'] ?? '');
         if ($nick === '' || mb_strlen($nick) > 30) {
-            echo json_encode(['ok' => false, 'error' => '캐릭터 이름을 입력해주세요.'], JSON_UNESCAPED_UNICODE);
+            echo json_encode(['ok' => false, 'error' => '캐릭터 이름을 입력해주세요.'], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
             exit;
         }
         $base = 'https://aion2.plaync.com/api/search/character?keyword=' . rawurlencode($nick) . '&page=1&size=30&race=';
@@ -194,10 +194,10 @@ if (!defined('PLAN_API_TEST_ONLY')) {
             }
         }
         if ($failed) {
-            echo json_encode(['ok' => false, 'error' => '캐릭터 검색에 실패했습니다. 잠시 후 다시 시도해주세요.'], JSON_UNESCAPED_UNICODE);
+            echo json_encode(['ok' => false, 'error' => '캐릭터 검색에 실패했습니다. 잠시 후 다시 시도해주세요.'], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
             exit;
         }
-        echo json_encode(['ok' => true, 'list' => array_slice($list, 0, 30)], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['ok' => true, 'list' => array_slice($list, 0, 30)], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
         exit;
     }
 
@@ -205,7 +205,7 @@ if (!defined('PLAN_API_TEST_ONLY')) {
         $characterId = $_GET['characterId'] ?? '';
         $serverId    = (int)($_GET['serverId'] ?? 0);
         if ($characterId === '' || $serverId === 0) {
-            echo json_encode(['ok' => false, 'error' => '잘못된 요청입니다.'], JSON_UNESCAPED_UNICODE);
+            echo json_encode(['ok' => false, 'error' => '잘못된 요청입니다.'], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
             exit;
         }
         // $_GET은 URL-decoded → rawurlencode로 재인코딩 후 API에 전달
@@ -214,20 +214,20 @@ if (!defined('PLAN_API_TEST_ONLY')) {
              . '&serverId=' . $serverId;
         $data = plan_fetch($url);
         if ($data === null || !isset($data['equipment']['equipmentList'])) {
-            echo json_encode(['ok' => false, 'error' => '장비 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.'], JSON_UNESCAPED_UNICODE);
+            echo json_encode(['ok' => false, 'error' => '장비 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.'], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
             exit;
         }
         $result = plan_compute($pdo, $data['equipment']['equipmentList']);
         // 선택적 캐릭터 메타 전달
-        $charName   = isset($_GET['charName'])   ? $_GET['charName']   : null;
-        $serverName = isset($_GET['serverName']) ? $_GET['serverName'] : null;
+        $charName   = isset($_GET['charName'])   ? mb_substr(strip_tags($_GET['charName']), 0, 40) : null;
+        $serverName = isset($_GET['serverName']) ? strip_tags($_GET['serverName'])                  : null;
         if ($charName !== null || $serverName !== null) {
             $result['character'] = ['name' => $charName, 'serverName' => $serverName];
         }
-        echo json_encode($result, JSON_UNESCAPED_UNICODE);
+        echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
         exit;
     }
 
-    echo json_encode(['ok' => false, 'error' => '알 수 없는 요청입니다.'], JSON_UNESCAPED_UNICODE);
+    echo json_encode(['ok' => false, 'error' => '알 수 없는 요청입니다.'], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
     exit;
 }

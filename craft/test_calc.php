@@ -201,5 +201,15 @@ chk('plan: rage_totals 분노 need>0 존재', $rageOk ? 1 : 0, 1);
 // ok 플래그
 chk('plan: ok=true', $plan['ok'] ? 1 : 0, 1);
 
+// 빛나는 보유 < 기본 보유: 빛나는 진룡왕 귀걸이 보유 시 계승 체인에서 빛나는승급 키나 700000 절약
+$fixtureShine = [['slotPosName' => 'Earring2', 'name' => '빛나는 진룡왕의 귀걸이']];
+$fixtureBasic = [['slotPosName' => 'Earring2', 'name' => '진룡왕의 귀걸이']];
+$planShine = plan_compute($pdo, $fixtureShine);
+$planBasic = plan_compute($pdo, $fixtureBasic);
+$costShine = $planShine['slots'][0]['cost'];
+$costBasic = $planBasic['slots'][0]['cost'];
+chk('plan: 빛나는 진룡왕 귀걸이 보유 < 기본 보유', ($costShine < $costBasic) ? 1 : 0, 1);
+chk('plan: 빛나는-기본 차이 = 700000(진룡왕 승급 키나)', abs($costBasic - $costShine - 700000) < 0.001 ? 1 : 0, 1);
+
 echo $fail === 0 ? "\nALL PASS\n" : "\n$fail FAILED\n";
 exit($fail === 0 ? 0 : 1);
