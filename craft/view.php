@@ -1,7 +1,9 @@
 <?php
 $fmt = fn($n) => number_format((int)round($n));
 $owned_options = ['없음'];
-foreach (['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕'] as $t) { $owned_options[] = "{$t}의 {$acc}"; $owned_options[] = "빛나는 {$t}의 {$acc}"; }
+$tierAll = ['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕','응룡왕'];
+$maxIdx  = array_search(craft_owned_max_tier($acc), $tierAll, true);
+foreach (array_slice($tierAll, 0, $maxIdx + 1) as $t) { $owned_options[] = "{$t}의 {$acc}"; $owned_options[] = "빛나는 {$t}의 {$acc}"; }
 ?><!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>응룡왕 제작효율 계산</title>
@@ -29,16 +31,32 @@ select{padding:9px 12px;background:#141828;border:1px solid #1e2840;border-radiu
 .link{color:#5a9bf5;text-decoration:none;font-size:13px}
 </style></head><body><div class="wrap">
 <h1>⚒️ 응룡왕 제작효율 계산기</h1>
+<?php $curGroup = craft_item_group($acc) ?? '장신구'; ?>
 <div class="controls">
-  <form method="get" style="display:inline">
-    <select name="acc" onchange="this.form.submit()">
-      <?php foreach (['목걸이','귀걸이','반지'] as $a): ?>
-        <option value="<?= $a ?>" <?= $a===$acc?'selected':'' ?>><?= $a ?></option>
+  <form method="get" style="display:inline-flex;gap:8px" id="pickForm">
+    <select id="groupSel" onchange="swapItems()">
+      <?php foreach (array_keys(CRAFT_CATEGORIES) as $g): ?>
+        <option value="<?= $g ?>" <?= $g===$curGroup?'selected':'' ?>><?= $g ?></option>
+      <?php endforeach ?>
+    </select>
+    <select name="acc" id="itemSel" onchange="this.form.submit()">
+      <?php foreach (CRAFT_CATEGORIES[$curGroup] as $it): ?>
+        <option value="<?= $it ?>" <?= $it===$acc?'selected':'' ?>><?= $it ?></option>
       <?php endforeach ?>
     </select>
   </form>
-  <a class="link" href="craft.php?acc=<?= $acc ?>&owned=<?= urlencode($owned_sel) ?>#prices">↓ 재료 시세 편집</a>
+  <a class="link" href="craft.php?acc=<?= urlencode($acc) ?>#prices">↓ 재료 시세 편집</a>
 </div>
+<script>
+const CRAFT_ITEMS = <?= json_encode(CRAFT_CATEGORIES, JSON_UNESCAPED_UNICODE) ?>;
+function swapItems() {
+  const g = document.getElementById('groupSel').value;
+  const sel = document.getElementById('itemSel');
+  sel.innerHTML = '';
+  for (const it of CRAFT_ITEMS[g]) { const o = document.createElement('option'); o.value = it; o.textContent = it; sel.appendChild(o); }
+  document.getElementById('pickForm').submit();   // 분류 바꾸면 그 분류 첫 품목으로 이동
+}
+</script>
 
 <div class="routes-grid">
 <?php foreach ($routes as $i => $r):
