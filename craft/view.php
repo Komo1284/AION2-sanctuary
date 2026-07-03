@@ -206,7 +206,7 @@ async function loadCharPlan(c) {
 
   try {
     const url = 'craft.php?plan=equip'
-      + '&characterId=' + encodeURIComponent(c.characterId)
+      + '&characterId=' + c.characterId   // already URL-encoded from search API
       + '&serverId='    + encodeURIComponent(c.serverId)
       + '&charName='    + encodeURIComponent(c.name)
       + '&serverName='  + encodeURIComponent(c.serverName);
