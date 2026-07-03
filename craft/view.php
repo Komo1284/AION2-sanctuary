@@ -73,8 +73,15 @@ function swapItems() {
 <script>
 const KEY = 'craft_owned_rage';
 
+function getOwned() {
+  try {
+    const v = JSON.parse(localStorage.getItem(KEY) || '{}');
+    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+  } catch (e) { return {}; }
+}
+
 function applyRage() {
-  const owned = JSON.parse(localStorage.getItem(KEY) || '{}');
+  const owned = getOwned();;
   document.querySelectorAll('.route-card').forEach(card => {
     const cost = parseInt(card.dataset.cost, 10);
     let ded = 0;
@@ -106,7 +113,7 @@ function applyRage() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const owned = JSON.parse(localStorage.getItem(KEY) || '{}');
+  const owned = getOwned();
   document.querySelectorAll('.rage-input').forEach(inp => {
     const v = owned[inp.dataset.mat];
     if (v > 0) inp.value = v;
