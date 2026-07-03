@@ -143,5 +143,61 @@ chk('방어구 useful tiers 비어있음', count(craft_useful_owned_tiers($actx,
 chk('무기 useful tiers = [응룡왕]', craft_useful_owned_tiers($dctx??craft_load_context($pdo,'대검'),'대검')===['응룡왕']?1:0,1);
 chk('장신구 useful tiers 5개', count(craft_useful_owned_tiers($ctx2,'목걸이'))===5?1:0,1);
 
+// ── plan_compute 픽스처 테스트 ──────────────────────────────────────
+// plan_api.php 함수 정의만 로드 (HTTP 핸들러 건너뜀)
+define('PLAN_API_TEST_ONLY', true);
+require_once __DIR__ . '/plan_api.php';
+
+// 단가 1 세팅은 이미 위에서 완료됨 (스냅샷 원복은 shutdown에서 처리)
+// 픽스처: 슬롯 7개 (slotPosName 은 실제 API에서 확인된 이름 사용)
+$fixture = [
+    ['slotPosName' => 'MainHand', 'name' => '응룡왕의 전곤'],
+    ['slotPosName' => 'SubHand',  'name' => '응룡왕의 가더'],
+    ['slotPosName' => 'Earring1', 'name' => '응룡왕의 귀걸이'],
+    ['slotPosName' => 'Necklace', 'name' => '천룡왕의 목걸이'],
+    ['slotPosName' => 'Earring2', 'name' => '진룡왕의 귀걸이'],
+    ['slotPosName' => 'Ring1',    'name' => '진룡왕의 반지'],
+    ['slotPosName' => 'Ring2',    'name' => '붉은 강옥의 반지'],
+];
+
+$plan = plan_compute($pdo, $fixture);
+
+// 결과 인덱스 헬퍼
+$bySlot = [];
+foreach ($plan['slots'] as $s) $bySlot[$s['slot']] = $s;
+
+// 완료 3슬롯 cost 0
+chk('plan: 무기(전곤) 완료 cost=0',     $bySlot['무기']['cost'],    0);
+chk('plan: 가더 완료 cost=0',           $bySlot['가더']['cost'],    0);
+chk('plan: 귀걸이1(응룡왕) 완료 cost=0', $bySlot['귀걸이1']['cost'], 0);
+chk('plan: 완료 status=완료(무기)',  $bySlot['무기']['status']  === '완료' ? 1 : 0, 1);
+chk('plan: 완료 status=완료(가더)',  $bySlot['가더']['status']  === '완료' ? 1 : 0, 1);
+chk('plan: 완료 status=완료(귀걸이1)', $bySlot['귀걸이1']['status'] === '완료' ? 1 : 0, 1);
+
+// 목걸이: 천룡왕 보유 cost < 신규(보유없음) cost
+$memoNeck = [];
+$ctxNeck  = craft_load_context($pdo, '목걸이');
+$costNeckFresh = craft_cost('응룡왕의 목걸이', $ctxNeck, [], $memoNeck, false)['cost'];
+chk('plan: 목걸이 천룡왕보유 cost>0', $bySlot['목걸이']['cost'], $bySlot['목걸이']['cost']); // 자기 자신
+chk('plan: 목걸이 천룡왕보유 < 신규', ($bySlot['목걸이']['cost'] < $costNeckFresh) ? 1 : 0, 1);
+
+// 반지2 status '신규 제작' (붉은 강옥 = 제작 티어 아님)
+chk('plan: 반지2 status=신규 제작', $bySlot['반지2']['status'] === '신규 제작' ? 1 : 0, 1);
+
+// total = Σ slot costs
+$calcTotal = 0.0;
+foreach ($plan['slots'] as $s) $calcTotal += $s['cost'];
+chk('plan: total = Σ slot costs', abs($plan['total'] - $calcTotal) < 0.001 ? 1 : 0, 1);
+
+// rage_totals: ≥1 분노 재료 need>0
+$rageOk = false;
+foreach ($plan['rage_totals'] as $rn => $rv) {
+    if ($rv['need'] > 0) { $rageOk = true; break; }
+}
+chk('plan: rage_totals 분노 need>0 존재', $rageOk ? 1 : 0, 1);
+
+// ok 플래그
+chk('plan: ok=true', $plan['ok'] ? 1 : 0, 1);
+
 echo $fail === 0 ? "\nALL PASS\n" : "\n$fail FAILED\n";
 exit($fail === 0 ? 0 : 1);

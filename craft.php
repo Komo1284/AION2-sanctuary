@@ -20,6 +20,8 @@ require_once __DIR__ . '/craft/calc.php';
 
 $acc = $_GET['acc'] ?? '목걸이';
 if (!in_array($acc, craft_all_items(), true)) $acc = '목걸이';
+
+if (isset($_GET['plan'])) { require __DIR__ . '/craft/plan_api.php'; exit; }
 $target = craft_target_for($acc);
 $owned_sel = $_GET['owned'] ?? '없음';
 $owned = ($owned_sel === '없음') ? [] : [$owned_sel];
