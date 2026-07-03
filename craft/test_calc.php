@@ -174,12 +174,14 @@ chk('plan: 완료 status=완료(무기)',  $bySlot['무기']['status']  === '완
 chk('plan: 완료 status=완료(가더)',  $bySlot['가더']['status']  === '완료' ? 1 : 0, 1);
 chk('plan: 완료 status=완료(귀걸이1)', $bySlot['귀걸이1']['status'] === '완료' ? 1 : 0, 1);
 
-// 목걸이: 천룡왕 보유 cost < 신규(보유없음) cost
+// 목걸이: 천룡왕 보유 cost ≤ 신규(보유없음) cost (owned는 cost를 올리지 않음)
+// ※ price=1 세계에서 kina 비용이 크므로 달인빛나는직접이 최적 → 양쪽 같을 수 있음
 $memoNeck = [];
 $ctxNeck  = craft_load_context($pdo, '목걸이');
 $costNeckFresh = craft_cost('응룡왕의 목걸이', $ctxNeck, [], $memoNeck, false)['cost'];
-chk('plan: 목걸이 천룡왕보유 cost>0', $bySlot['목걸이']['cost'], $bySlot['목걸이']['cost']); // 자기 자신
-chk('plan: 목걸이 천룡왕보유 < 신규', ($bySlot['목걸이']['cost'] < $costNeckFresh) ? 1 : 0, 1);
+chk('plan: 목걸이 천룡왕보유 cost>0', $bySlot['목걸이']['cost'] > 0 ? 1 : 0, 1);
+chk('plan: 목걸이 천룡왕보유 <= 신규', ($bySlot['목걸이']['cost'] <= $costNeckFresh) ? 1 : 0, 1);
+chk('plan: 목걸이 status=계승 제작', $bySlot['목걸이']['status'] === '계승 제작' ? 1 : 0, 1);
 
 // 반지2 status '신규 제작' (붉은 강옥 = 제작 티어 아님)
 chk('plan: 반지2 status=신규 제작', $bySlot['반지2']['status'] === '신규 제작' ? 1 : 0, 1);
