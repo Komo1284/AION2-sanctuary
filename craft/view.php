@@ -1,5 +1,6 @@
 <?php
 $fmt = fn($n) => number_format((int)round($n));
+$rageMats = $pdo->query("SELECT name FROM craft_materials WHERE category='분노' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
 $owned_options = ['없음'];
 $tierAll = ['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕','응룡왕'];
 $maxIdx  = array_search(craft_owned_max_tier($acc), $tierAll, true);
@@ -47,6 +48,18 @@ select{padding:9px 12px;background:#141828;border:1px solid #1e2840;border-radiu
   </form>
   <a class="link" href="craft.php?acc=<?= urlencode($acc) ?>#prices">↓ 재료 시세 편집</a>
 </div>
+<div id="ragePanel" style="background:#141828;border:1px solid #1e2840;border-radius:10px;padding:14px 16px;margin-bottom:20px">
+  <div style="font-size:13px;font-weight:700;color:#f0c96a;margin-bottom:4px">🎒 보유 귀속(각인) 분노 재료</div>
+  <div style="font-size:11px;color:#8a9ab8;margin-bottom:10px">보유 수량만큼 각 루트 비용에서 차감해 실질 비용을 보여줍니다. 이 정보는 내 브라우저에만 저장됩니다.</div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px 16px">
+<?php foreach ($rageMats as $m): ?>
+    <label style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:#8a9ab8">
+      <?= htmlspecialchars($m) ?>
+      <input type="number" min="0" class="rage-input" data-mat="<?= htmlspecialchars($m) ?>" style="width:90px;padding:5px 8px;background:#0a0c14;border:1px solid #1e2840;border-radius:5px;color:#e8eaf0;font-family:inherit">
+    </label>
+<?php endforeach ?>
+  </div>
+</div>
 <script>
 const CRAFT_ITEMS = <?= json_encode(CRAFT_CATEGORIES, JSON_UNESCAPED_UNICODE) ?>;
 function swapItems() {
@@ -57,6 +70,59 @@ function swapItems() {
   document.getElementById('pickForm').submit();   // 분류 바꾸면 그 분류 첫 품목으로 이동
 }
 </script>
+<script>
+const KEY = 'craft_owned_rage';
+
+function applyRage() {
+  const owned = JSON.parse(localStorage.getItem(KEY) || '{}');
+  document.querySelectorAll('.route-card').forEach(card => {
+    const cost = parseInt(card.dataset.cost, 10);
+    let ded = 0;
+    card.querySelectorAll('tr[data-mat]').forEach(row => {
+      const mat = row.dataset.mat;
+      const qty = parseInt(row.dataset.qty, 10);
+      const unit = parseInt(row.dataset.unit, 10);
+      if (owned[mat] > 0 && unit > 0) {
+        const use = Math.min(owned[mat], qty);
+        ded += use * unit;
+        // 귀속 차감 표시 (첫 번째 td에 span 추가/갱신)
+        const td = row.querySelector('td');
+        let sp = td.querySelector('.rage-ded');
+        if (!sp) { sp = document.createElement('span'); sp.className = 'rage-ded'; sp.style.cssText = 'color:#2ecc71;font-size:10px;display:block'; td.appendChild(sp); }
+        sp.textContent = '−' + use.toLocaleString('ko-KR') + '개 차감';
+      } else {
+        const sp = row.querySelector('.rage-ded');
+        if (sp) sp.remove();
+      }
+    });
+    const adjEl = card.querySelector('.route-adj');
+    if (ded > 0) {
+      adjEl.textContent = '귀속 차감 후 ' + (cost - ded).toLocaleString('ko-KR') + ' (−' + ded.toLocaleString('ko-KR') + ')';
+      adjEl.style.display = '';
+    } else {
+      adjEl.style.display = 'none';
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const owned = JSON.parse(localStorage.getItem(KEY) || '{}');
+  document.querySelectorAll('.rage-input').forEach(inp => {
+    const v = owned[inp.dataset.mat];
+    if (v > 0) inp.value = v;
+    inp.addEventListener('input', () => {
+      const map = {};
+      document.querySelectorAll('.rage-input').forEach(i => {
+        const n = parseInt(i.value, 10);
+        if (n > 0) map[i.dataset.mat] = n;
+      });
+      localStorage.setItem(KEY, JSON.stringify(map));
+      applyRage();
+    });
+  });
+  applyRage();
+});
+</script>
 
 <div class="routes-grid">
 <?php foreach ($routes as $i => $r):
@@ -65,11 +131,12 @@ function swapItems() {
       if (empty($b['core']) && (int)$b['unit'] === 0 && $b['qty'] > 0 && $nm !== '키나(통합)') $unpriced[] = $nm;
   }
 ?>
-<div class="route-card <?= $i===0?'best':'' ?>">
+<div class="route-card <?= $i===0?'best':'' ?>" data-cost="<?= (int)round($r['cost_fixed']) ?>">
   <div class="route-head">
     <div class="route-label"><?= $i===0?'⭐ ':'' ?><?= htmlspecialchars($r['label']) ?></div>
     <div class="route-cost"><?= $fmt($r['cost_fixed']) ?></div>
     <div class="route-ev">COMBO 기대값 <?= $fmt($r['cost_ev']) ?></div>
+    <div class="route-adj" style="display:none;font-size:13px;font-weight:700;color:#2ecc71;margin-top:4px"></div>
   </div>
   <?php if (!empty($r['is_owned_route'])): ?>
   <form method="get" style="margin-bottom:10px">
@@ -89,7 +156,7 @@ function swapItems() {
   <?php endif ?>
   <table class="bd"><thead><tr><th>재료</th><th class="num">수량</th><th class="num">단가</th><th class="num">소계</th></tr></thead><tbody>
   <?php foreach ($r['breakdown'] as $name => $b): $qty=$b['qty']; $unit=$b['unit']; ?>
-    <tr>
+    <tr data-mat="<?= htmlspecialchars($name) ?>" data-qty="<?= (int)round($qty) ?>" data-unit="<?= (int)$unit ?>">
       <td><?= htmlspecialchars($name) ?><?= !empty($b['core'])?'<span class="badge">무료</span>':'' ?></td>
       <td class="num"><?= $fmt($qty) ?></td>
       <td class="num"><?= !empty($b['core'])?'0':$fmt($unit) ?></td>
