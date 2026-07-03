@@ -123,11 +123,280 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       localStorage.setItem(KEY, JSON.stringify(map));
       applyRage();
+      recalcPlanDeduction();
     });
   });
   applyRage();
+  recalcPlanDeduction();
 });
 </script>
+
+<script>
+/* ── 캐릭터 검색 & 7부위 플랜 ── */
+let lastPlanData = null;
+
+async function searchCharacter() {
+  const nickInput = document.getElementById('charNickInput');
+  const nick = nickInput ? nickInput.value.trim() : '';
+  if (!nick) return;
+
+  const statusEl   = document.getElementById('charSearchStatus');
+  const candidatesEl = document.getElementById('charCandidates');
+  const planEl     = document.getElementById('charPlan');
+
+  while (candidatesEl.firstChild) candidatesEl.removeChild(candidatesEl.firstChild);
+  while (planEl.firstChild)       planEl.removeChild(planEl.firstChild);
+  lastPlanData = null;
+
+  statusEl.textContent  = '검색 중…';
+  statusEl.style.display = '';
+
+  try {
+    const res  = await fetch('craft.php?plan=search&nick=' + encodeURIComponent(nick));
+    const data = await res.json();
+
+    if (!data.ok) {
+      statusEl.textContent = data.error || '오류가 발생했습니다.';
+      return;
+    }
+
+    if (!data.list || data.list.length === 0) {
+      statusEl.textContent = '검색 결과가 없습니다.';
+      return;
+    }
+
+    statusEl.style.display = 'none';
+
+    for (const c of data.list) {
+      const btn = document.createElement('button');
+      btn.style.cssText = 'padding:6px 12px;background:#0a0c14;border:1px solid #1e2840;border-radius:6px;color:#e8eaf0;cursor:pointer;font-family:inherit;font-size:12px;transition:border-color .15s';
+      btn.addEventListener('mouseenter', () => { btn.style.borderColor = '#c9a84c'; });
+      btn.addEventListener('mouseleave', () => { btn.style.borderColor = '#1e2840'; });
+
+      const nameSpan = document.createElement('span');
+      nameSpan.style.fontWeight = '700';
+      nameSpan.textContent = c.name;
+      btn.appendChild(nameSpan);
+
+      btn.appendChild(document.createTextNode(' · '));
+
+      const serverSpan = document.createElement('span');
+      serverSpan.style.color = '#8a9ab8';
+      serverSpan.textContent = c.serverName;
+      btn.appendChild(serverSpan);
+
+      btn.appendChild(document.createTextNode(' · Lv.' + c.level));
+
+      btn.addEventListener('click', () => loadCharPlan(c));
+      candidatesEl.appendChild(btn);
+    }
+  } catch (e) {
+    statusEl.textContent = '네트워크 오류: ' + e.message;
+  }
+}
+
+async function loadCharPlan(c) {
+  const planEl = document.getElementById('charPlan');
+  while (planEl.firstChild) planEl.removeChild(planEl.firstChild);
+  const loadingDiv = document.createElement('div');
+  loadingDiv.style.cssText = 'font-size:12px;color:#8a9ab8;padding:8px 0';
+  loadingDiv.textContent = '불러오는 중…';
+  planEl.appendChild(loadingDiv);
+  lastPlanData = null;
+
+  try {
+    const url = 'craft.php?plan=equip'
+      + '&characterId=' + encodeURIComponent(c.characterId)
+      + '&serverId='    + encodeURIComponent(c.serverId)
+      + '&charName='    + encodeURIComponent(c.name)
+      + '&serverName='  + encodeURIComponent(c.serverName);
+    const res  = await fetch(url);
+    const data = await res.json();
+
+    while (planEl.firstChild) planEl.removeChild(planEl.firstChild);
+
+    if (!data.ok) {
+      const errDiv = document.createElement('div');
+      errDiv.style.cssText = 'color:#e74c3c;font-size:13px;padding:6px 0';
+      errDiv.textContent = data.error || '불러오기 실패';
+      planEl.appendChild(errDiv);
+      return;
+    }
+
+    lastPlanData = data;
+    renderPlan(data);
+  } catch (e) {
+    while (planEl.firstChild) planEl.removeChild(planEl.firstChild);
+    const errDiv = document.createElement('div');
+    errDiv.style.cssText = 'color:#e74c3c;font-size:13px;padding:6px 0';
+    errDiv.textContent = '네트워크 오류: ' + e.message;
+    planEl.appendChild(errDiv);
+  }
+}
+
+function renderPlan(data) {
+  const planEl = document.getElementById('charPlan');
+  while (planEl.firstChild) planEl.removeChild(planEl.firstChild);
+
+  /* 헤더 */
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'font-size:14px;font-weight:700;color:#f0c96a;margin-bottom:10px;padding-top:8px;border-top:1px solid #1e2840';
+  hdr.textContent = data.character.name + ' @' + data.character.serverName + ' — 7부위 응룡왕 플랜';
+  planEl.appendChild(hdr);
+
+  /* 슬롯 테이블 */
+  const table = document.createElement('table');
+  table.className = 'bd';
+  table.style.marginBottom = '12px';
+
+  const thead = document.createElement('thead');
+  const htr   = document.createElement('tr');
+  [['부위', ''], ['착용 장비', ''], ['상태', ''], ['추천 루트', ''], ['비용', 'num']].forEach(([t, cls]) => {
+    const th = document.createElement('th');
+    if (cls) th.className = cls;
+    th.textContent = t;
+    htr.appendChild(th);
+  });
+  thead.appendChild(htr);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  const slotOrder   = ['무기', '가더', '목걸이', '귀걸이1', '귀걸이2', '반지1', '반지2'];
+  const statusColor = {
+    '완료':    '#2ecc71',
+    '계승 제작': '#f0c96a',
+    '신규 제작': '#e74c3c',
+    '미착용':  '#8a9ab8',
+    '판별 불가': '#8a9ab8'
+  };
+
+  const slotMap = {};
+  for (const s of data.slots) slotMap[s.slot] = s;
+
+  for (const slotName of slotOrder) {
+    const s = slotMap[slotName];
+    if (!s) continue;
+
+    const tr = document.createElement('tr');
+
+    const tdSlot = document.createElement('td');
+    tdSlot.style.whiteSpace = 'nowrap';
+    tdSlot.textContent = s.slot;
+    tr.appendChild(tdSlot);
+
+    const tdEquipped = document.createElement('td');
+    tdEquipped.style.fontSize  = '11px';
+    tdEquipped.style.color     = '#c8d0e0';
+    tdEquipped.textContent = s.equipped || '—';
+    tr.appendChild(tdEquipped);
+
+    const tdStatus = document.createElement('td');
+    const sBadge   = document.createElement('span');
+    sBadge.style.color      = statusColor[s.status] || '#8a9ab8';
+    sBadge.style.fontWeight = '700';
+    sBadge.style.fontSize   = '11px';
+    sBadge.textContent = s.status;
+    tdStatus.appendChild(sBadge);
+    tr.appendChild(tdStatus);
+
+    const tdRoute = document.createElement('td');
+    tdRoute.style.fontSize = '11px';
+    tdRoute.style.color    = '#8a9ab8';
+    tdRoute.textContent = s.route || '—';
+    tr.appendChild(tdRoute);
+
+    const tdCost = document.createElement('td');
+    tdCost.className = 'num';
+    if (s.status === '완료' || !s.cost) {
+      tdCost.textContent  = '—';
+      tdCost.style.color  = '#8a9ab8';
+    } else {
+      tdCost.textContent = Number(s.cost).toLocaleString('ko-KR');
+    }
+    tr.appendChild(tdCost);
+
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  planEl.appendChild(table);
+
+  /* 총 제작 비용 */
+  const totalDiv   = document.createElement('div');
+  totalDiv.style.cssText = 'font-size:13px;margin-bottom:8px';
+  const totalLabel = document.createElement('span');
+  totalLabel.style.color  = '#8a9ab8';
+  totalLabel.textContent  = '총 제작 비용: ';
+  const totalVal = document.createElement('span');
+  totalVal.style.cssText  = 'font-weight:700;color:#f0c96a';
+  totalVal.textContent    = Number(data.total || 0).toLocaleString('ko-KR');
+  totalDiv.appendChild(totalLabel);
+  totalDiv.appendChild(totalVal);
+  planEl.appendChild(totalDiv);
+
+  /* 분노 차감 컨테이너 (recalcPlanDeduction 이 채움) */
+  const deductContainer = document.createElement('div');
+  deductContainer.id = 'planDeductContainer';
+  planEl.appendChild(deductContainer);
+
+  /* 안내 */
+  const noteDiv = document.createElement('div');
+  noteDiv.style.cssText = 'font-size:11px;color:#8a9ab8;margin-top:8px';
+  noteDiv.textContent = '※ 분노 귀속 보유 수량은 위 🎒 패널 값 기준';
+  planEl.appendChild(noteDiv);
+
+  recalcPlanDeduction();
+}
+
+function recalcPlanDeduction() {
+  if (!lastPlanData) return;
+  const owned      = getOwned();
+  const rageTotals = lastPlanData.rage_totals || {};
+
+  let save = 0;
+  for (const [name, info] of Object.entries(rageTotals)) {
+    save += Math.min(owned[name] || 0, info.need) * (info.unit || 0);
+  }
+
+  const container = document.getElementById('planDeductContainer');
+  if (!container) return;
+  while (container.firstChild) container.removeChild(container.firstChild);
+
+  if (save > 0) {
+    const total = lastPlanData.total || 0;
+
+    const dedDiv = document.createElement('div');
+    dedDiv.style.cssText = 'font-size:13px;color:#2ecc71;margin-bottom:4px';
+    dedDiv.textContent   = '귀속 분노 차감: −' + save.toLocaleString('ko-KR');
+    container.appendChild(dedDiv);
+
+    const netDiv = document.createElement('div');
+    netDiv.style.cssText = 'font-size:14px;font-weight:700;color:#f0c96a';
+    netDiv.textContent   = '실질 총 비용: ' + (total - save).toLocaleString('ko-KR');
+    container.appendChild(netDiv);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const nickInput = document.getElementById('charNickInput');
+  if (nickInput) {
+    nickInput.addEventListener('keydown', e => { if (e.key === 'Enter') searchCharacter(); });
+  }
+});
+</script>
+
+<div id="charPlanSection" style="background:#141828;border:1px solid #1e2840;border-radius:10px;padding:16px;margin-bottom:20px">
+  <div style="font-size:13px;font-weight:700;color:#f0c96a;margin-bottom:6px">🔍 캐릭터로 한번에 계산</div>
+  <div style="font-size:11px;color:#8a9ab8;margin-bottom:10px">캐릭터 닉네임으로 검색해 장착 아이템을 분석하고 7부위 제작 비용을 한번에 계산합니다.</div>
+  <div style="display:flex;gap:8px;margin-bottom:10px">
+    <input type="text" id="charNickInput" placeholder="캐릭터 닉네임"
+      style="flex:1;min-width:0;padding:8px 12px;background:#0a0c14;border:1px solid #1e2840;border-radius:6px;color:#e8eaf0;font-family:inherit;font-size:13px">
+    <button onclick="searchCharacter()"
+      style="padding:8px 16px;background:linear-gradient(135deg,#8a6830,#c9a84c);border:none;border-radius:6px;color:#0a0c14;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">검색</button>
+  </div>
+  <div id="charSearchStatus" style="font-size:12px;color:#8a9ab8;display:none;margin-bottom:8px"></div>
+  <div id="charCandidates" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px"></div>
+  <div id="charPlan"></div>
+</div>
 
 <div class="routes-grid">
 <?php foreach ($routes as $i => $r):
