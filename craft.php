@@ -26,6 +26,15 @@ $owned = ($owned_sel === '없음') ? [] : [$owned_sel];
 
 require_once __DIR__ . '/craft/actions.php';
 $ctx = craft_load_context($pdo, $acc);
+$useful_tiers = craft_useful_owned_tiers($ctx, $acc);
+// 유효하지 않은 보유 티어 파라미터 초기화 (계승이 없는 품목의 stale GET 방어)
+if ($owned_sel !== '없음') {
+    $valid = false;
+    foreach ($useful_tiers as $t) {
+        if (mb_strpos($owned_sel, $t) !== false) { $valid = true; break; }
+    }
+    if (!$valid) { $owned_sel = '없음'; $owned = []; }
+}
 $routes = craft_enumerate_routes($ctx, $acc, $owned);
 
 require __DIR__ . '/craft/view.php';

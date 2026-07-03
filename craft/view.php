@@ -2,9 +2,7 @@
 $fmt = fn($n) => number_format((int)round($n));
 $rageMats = $pdo->query("SELECT name FROM craft_materials WHERE category='분노' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
 $owned_options = ['없음'];
-$tierAll = ['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕','응룡왕'];
-$maxIdx  = array_search(craft_owned_max_tier($acc), $tierAll, true);
-foreach (array_slice($tierAll, 0, $maxIdx + 1) as $t) { $owned_options[] = "{$t}의 {$acc}"; $owned_options[] = "빛나는 {$t}의 {$acc}"; }
+foreach (array_reverse($useful_tiers) as $t) { $owned_options[] = "{$t}의 {$acc}"; $owned_options[] = "빛나는 {$t}의 {$acc}"; }
 ?><!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>응룡왕 제작효율 계산</title>
@@ -81,7 +79,7 @@ function getOwned() {
 }
 
 function applyRage() {
-  const owned = getOwned();;
+  const owned = getOwned();
   document.querySelectorAll('.route-card').forEach(card => {
     const cost = parseInt(card.dataset.cost, 10);
     let ded = 0;
@@ -174,6 +172,9 @@ document.addEventListener('DOMContentLoaded', () => {
 </div>
 <?php endforeach ?>
 </div>
+<?php if (empty($useful_tiers)): ?>
+<p style="font-size:12px;color:#8a9ab8;margin:-8px 0 20px">ℹ 이 품목은 상위 계승 레시피가 없어 보유 아이템 반영이 불가합니다 — 응룡왕 직접제작만 가능합니다. (게임에 계승이 추가되면 자동 반영)</p>
+<?php endif ?>
 
 <h2 id="prices" style="font-size:18px;color:#f0c96a;margin:28px 0 12px">💰 재료 시세 (공개 편집)</h2>
 <p style="font-size:12px;color:#8a9ab8;margin-bottom:12px">누구나 현재 시세로 갱신할 수 있습니다. 코어·계승석(영웅)은 무료라 항상 0입니다.<br>

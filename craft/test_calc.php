@@ -55,6 +55,7 @@ chk('현룡왕 보유 → 0', $ro['cost'], 0);
 $ctx2 = craft_load_context($pdo, '목걸이');
 $routes = craft_enumerate_routes($ctx2, '목걸이', []);
 chk('루트 최소 2개 이상', count($routes) >= 2 ? 1 : 0, 1);
+chk('목걸이 루트 3개 유지(장신구는 계승 존재)', count($routes) === 3 ? 1 : 0, 1);
 chk('루트는 cost 오름차순', ($routes[0]['cost_fixed'] <= $routes[count($routes)-1]['cost_fixed']) ? 1 : 0, 1);
 $hasDirect = false; foreach ($routes as $r) if (mb_strpos($r['label'],'직접제작')!==false) $hasDirect=true;
 chk('직접제작 루트 존재', $hasDirect ? 1 : 0, 1);
@@ -106,6 +107,16 @@ chk('대검 창룡왕 라벨', mb_strpos($wLabels, '창룡왕') !== false ? 1 : 
 $wbd = null; foreach ($wroutes as $r) if (!empty($r['is_owned_route'])) $wbd = $r['breakdown'];
 chk('대검 보유루트에 폭주한 공포 재료 포함', ($wbd && isset($wbd['폭주한 공포의 사념'])) ? 1 : 0, 1);
 
+// 대검 응룡왕 보유 시 직접제작보다 저렴한지 확인
+$dctx = craft_load_context($pdo,'대검');
+$dr = craft_enumerate_routes($dctx,'대검',['응룡왕의 대검']);
+$d1 = null; $dO = null;
+foreach($dr as $r) {
+    if(!empty($r['is_owned_route'])) $dO=$r['cost_fixed'];
+    elseif($d1===null) $d1=$r['cost_fixed'];
+}
+chk('대검 응룡왕 보유 → 직접제작보다 저렴', ($dO!==null && $d1!==null && $dO < $d1)?1:0, 1);
+
 // 마법서(구 법서) 품목명 정합: items.php ↔ seed accessory명
 $mctx = craft_load_context($pdo, '마법서');
 $mroutes = craft_enumerate_routes($mctx, '마법서', []);
@@ -115,7 +126,7 @@ chk('법서는 품목 아님(마법서로 대체)', in_array('법서', craft_all
 // 방어구(투구): 응룡왕 목표 + 계승석 대체가(방어구군)
 $actx = craft_load_context($pdo, '투구');
 $aroutes = craft_enumerate_routes($actx, '투구', []);
-chk('투구 루트 2개 이상', count($aroutes) >= 2 ? 1 : 0, 1);
+chk('투구 루트 1개(응룡왕 계승 없음 → 중복 제거)', count($aroutes) === 1 ? 1 : 0, 1);
 chk('투구 라벨은 응룡왕(창룡왕 아님)', mb_strpos(implode('|', array_column($aroutes,'label')), '창룡왕') === false ? 1 : 0, 1);
 chk('제작 계승석: 방어구 = 중간아이템-방어구 최저가(1)', $actx['price']['제작 계승석: 방어구'], 1);
 
@@ -123,9 +134,14 @@ chk('제작 계승석: 방어구 = 중간아이템-방어구 최저가(1)', $act
 foreach (['흉갑','각반','장화'] as $slot) {
     $sctx2 = craft_load_context($pdo, $slot);
     $sr = craft_enumerate_routes($sctx2, $slot, []);
-    chk("{$slot} 루트 2개 이상", count($sr) >= 2 ? 1 : 0, 1);
+    chk("{$slot} 루트 1개(계승 없음)", count($sr) === 1 ? 1 : 0, 1);
 }
 chk('상의는 품목 아님(흉갑으로 대체)', in_array('상의', craft_all_items(), true) ? 0 : 1, 1);
+
+// useful tiers 함수 검증
+chk('방어구 useful tiers 비어있음', count(craft_useful_owned_tiers($actx,'투구'))===0?1:0,1);
+chk('무기 useful tiers = [응룡왕]', craft_useful_owned_tiers($dctx??craft_load_context($pdo,'대검'),'대검')===['응룡왕']?1:0,1);
+chk('장신구 useful tiers 5개', count(craft_useful_owned_tiers($ctx2,'목걸이'))===5?1:0,1);
 
 echo $fail === 0 ? "\nALL PASS\n" : "\n$fail FAILED\n";
 exit($fail === 0 ? 0 : 1);

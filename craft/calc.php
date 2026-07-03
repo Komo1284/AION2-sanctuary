@@ -185,6 +185,26 @@ function craft_route_inherit(array $ctx, string $target, string $ownedTier, arra
     return ['cost_fixed' => $cf['cost'], 'cost_ev' => $ce['cost'], 'breakdown' => $bd];
 }
 
+// 보유가 실제로 도움이 되는 티어 목록: 목표 티어에서 아래로 내려가며 '계승' 레시피가 존재하는 동안만.
+// 예) 장신구: 응룡왕 계승 있음→현룡왕 유효, 현룡왕 계승 있음→천룡왕 유효 … → [현룡왕,천룡왕,명룡왕,백룡왕,진룡왕]
+//     무기: 창룡왕 계승 있음→응룡왕 유효, 응룡왕 계승 없음→중단 → [응룡왕]
+//     방어구: 응룡왕(목표) 계승 없음 → [] (보유 무의미)
+function craft_useful_owned_tiers(array $ctx, string $item): array {
+    $order = ['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕','응룡왕','창룡왕'];
+    $top = craft_top_tier($item);
+    $idx = array_search($top, $order, true);
+    $useful = [];
+    while ($idx > 0) {
+        $out = $order[$idx] . '의 ' . $item;
+        $hasInherit = false;
+        foreach ($ctx['recipes'][$out] ?? [] as $r) if ($r['type'] === '계승') { $hasInherit = true; break; }
+        if (!$hasInherit) break;
+        $idx--;
+        $useful[] = $order[$idx];   // 이 티어를 보유하면 위로 계승 가능
+    }
+    return $useful;   // 상위 티어부터 내림차순
+}
+
 function craft_enumerate_routes(array $ctx, string $item, array $owned): array {
     $target = craft_target_for($item);
     $top    = craft_top_tier($item);
@@ -195,17 +215,25 @@ function craft_enumerate_routes(array $ctx, string $item, array $owned): array {
     // 2) 현룡왕 코어직접 → 계승 체인 (맨땅 기준)
     $r2 = craft_route_from_entry($ctx, $target, "현룡왕의 {$item}", '코어직접', []);
     if ($r2) $routes[] = ['label' => $top === '창룡왕' ? '현룡왕 코어직접 → 계승 체인' : '현룡왕 코어직접 → 응룡왕 계승'] + $r2;
-    // 3) 보유 아이템부터 계승 (보유 없으면 진룡왕부터)
-    $tiers = ['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕','응룡왕'];
-    $ownedTier = '진룡왕';
-    if (!empty($owned)) {
-        foreach ($tiers as $t) { if (mb_strpos($owned[0], $t) !== false) { $ownedTier = $t; break; } }
-        $label3 = '보유 ' . $owned[0] . '부터 계승';
-    } else {
-        $label3 = '진룡왕부터 계승 (보유 없음)';
+    // Dedup: route 2가 route 1과 byte-identical하면 제거 (보유 루트는 dedup 대상 아님)
+    if (count($routes) >= 2 && empty($routes[1]['is_owned_route'])) {
+        $sig = fn($r) => md5(json_encode([round($r['cost_fixed']), array_map(fn($b) => [$b['qty'], $b['unit']], $r['breakdown'])]));
+        if ($sig($routes[0]) === $sig($routes[1])) array_splice($routes, 1, 1);
     }
-    $r3 = craft_route_inherit($ctx, $target, $ownedTier, $owned);
-    if ($r3) $routes[] = ['label' => $label3, 'is_owned_route' => true] + $r3;
+    // 3) 보유 아이템부터 계승 (useful tiers가 있을 때만)
+    $useful = craft_useful_owned_tiers($ctx, $item);
+    if (!empty($useful)) {
+        $tiers = ['진룡왕','백룡왕','명룡왕','천룡왕','현룡왕','응룡왕'];
+        $ownedTier = '진룡왕';
+        if (!empty($owned)) {
+            foreach ($tiers as $t) { if (mb_strpos($owned[0], $t) !== false) { $ownedTier = $t; break; } }
+            $label3 = '보유 ' . $owned[0] . '부터 계승';
+        } else {
+            $label3 = '보유 아이템부터 계승 (카드에서 선택)';
+        }
+        $r3 = craft_route_inherit($ctx, $target, $ownedTier, $owned);
+        if ($r3) $routes[] = ['label' => $label3, 'is_owned_route' => true] + $r3;
+    }
     usort($routes, fn($a,$b) => $a['cost_fixed'] <=> $b['cost_fixed']);
     return $routes;
 }
