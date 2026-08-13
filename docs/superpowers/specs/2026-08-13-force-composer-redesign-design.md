@@ -35,6 +35,7 @@
 | 편집 권한 | 사이트 비밀번호만 알면 누구나 편집 |
 | 캐릭터 정보 | 캐릭명 + 직업 + 아툴점수 + 아이템레벨 |
 | 중복 배치 | 같은 레이드 내 같은 캐릭터 중복은 **경고만**, 차단하지 않음 |
+| 임시 캐릭터 | 이름만 있는 자리표시 카드를 지원. 아툴 조회를 하지 않고 직업·점수가 비어 있음 |
 | 대상 환경 | PC 전용 |
 | 인터랙션 | 대기창 카드 클릭 → 카드 옆 앵커드 팝오버 → 팝오버에서 슬롯으로 드래그 |
 
@@ -81,14 +82,15 @@ fc_players
 fc_characters
   id              INT PK AUTO_INCREMENT
   player_id       INT NOT NULL
-  char_name       VARCHAR(100) NOT NULL UNIQUE
+  char_name       VARCHAR(100) NOT NULL
   char_class      VARCHAR(20) DEFAULT ''
   atul_score      INT NULL
   item_level      INT NULL
   is_main         TINYINT(1) DEFAULT 0
+  is_placeholder  TINYINT(1) DEFAULT 0   -- 1이면 임시 캐릭터
   sort_order      INT DEFAULT 0
   atul_updated_at DATETIME NULL
-  INDEX (player_id)
+  INDEX (player_id), INDEX (char_name)
 
 fc_raids
   id, name VARCHAR(50) NOT NULL, memo VARCHAR(200) DEFAULT '',
@@ -119,8 +121,23 @@ fc_meta
 부캐든 똑같은 캐릭터이므로 `fc_slots.character_id`가 한 곳만 가리키면 된다. 대기창은
 `is_main = 1`만 걸러서 보여준다.
 
-**`char_name`에 UNIQUE를 건다.** 같은 캐릭명이 두 사람 밑에 등록되면 "이 이름이 누구 캐릭인가"라는
-이 도구의 존재 이유가 무너진다. DB가 막는다.
+**임시 캐릭터는 `is_placeholder = 1`인 보통의 캐릭터다.** 레이드에 사람은 나가는데 어떤 부캐를
+보낼지 아직 안 정했을 때 쓴다 — "코모부캐1", "코모부캐2" 같은 이름만 있는 카드다. 별도 테이블을
+만들지 않는 이유는, 배치·중복 감지·대기창 뱃지가 실제 캐릭터와 **완전히 똑같이 동작해야** 하기
+때문이다. 다른 점은 두 가지뿐이다: 아툴 조회를 시도하지 않고, 화면에서 점선 회색으로 그려진다.
+
+나중에 캐릭터가 정해지면 명단 관리에서 이름을 실제 캐릭명으로 고치고 "실제 캐릭터로 전환"을
+누른다. 그러면 `is_placeholder = 0`이 되고 아툴 조회가 돌아 직업·점수가 채워진다.
+**이미 배치된 슬롯은 그대로 유지된다** — 자리는 그대로 두고 내용만 확정되는 것이 실제 운영 흐름이다.
+
+**중복 검사는 실제 캐릭터끼리만 한다.** 실제 캐릭명이 두 사람 밑에 등록되면 "이 이름이 누구
+캐릭인가"라는 이 도구의 존재 이유가 무너지므로 `is_placeholder = 0`인 행들 사이에서는 이름이
+전역 유일해야 한다. 반면 "부캐1" 같은 임시명은 여러 사람이 동시에 쓸 수 있어야 하므로, 임시
+캐릭터는 **같은 플레이어 안에서만** 이름 중복을 막는다.
+
+이 조건부 규칙 때문에 `char_name`에 DB UNIQUE 인덱스를 걸지 않는다. MySQL에는 부분 유니크
+인덱스가 없어서 "실제 캐릭터일 때만 유일"을 DB로 표현할 수 없다. 검사는 `fc_insert_character()`
+한 곳에서만 하고, 캐릭터를 만드는 모든 경로가 그 함수를 지나가게 해서 우회로를 없앤다.
 
 **포스를 만들 때 빈 슬롯 10행을 미리 INSERT한다.** 드롭이
 `UPDATE fc_slots SET character_id=? WHERE id=?` 한 줄이 되고, 파티/슬롯 순서가 DB에 명시적으로
@@ -171,9 +188,11 @@ fc_meta
 
 대기창 카드 클릭 시 카드 오른쪽에 앵커되어 뜬다. 보드를 가리지 않는다.
 
-- ⭐본캐 + 부캐 전부가 한 줄씩. 각 줄에 캐릭명 · 직업 · 아툴점수
+- ⭐본캐 + 부캐 + 임시 캐릭터 전부가 한 줄씩. 각 줄에 캐릭명 · 직업 · 아툴점수
+- 임시 캐릭터는 점선 테두리 · 회색 도트 · 직업/점수 자리에 `미정`
 - 각 줄이 드래그 소스
 - **현재 레이드에 이미 배치된 캐릭터는 흐리게 + "1포스" 뱃지** — 드래그하기 전에 중복을 안다
+- 맨 아래 `+ 임시 캐릭 추가` — 누르면 `<본캐명>부캐N` 이름이 자동으로 제안된다
 - ESC 또는 바깥 클릭으로 닫힘
 
 ### 포스 카드
@@ -181,6 +200,7 @@ fc_meta
 - 헤더: 포스번호 색상 뱃지 · 요일/시간 · 인원수(8/10) · ⋯메뉴(수정 / 메모 / 삭제)
 - 1파티 5슬롯, 2파티 5슬롯
 - 빈 슬롯은 점선 `＋`, 채워진 슬롯은 직업색 카드(캐릭명 크게, 아래 작게 소유자 본캐명)
+- 임시 캐릭터가 들어간 슬롯은 회색 점선 카드 — 아직 확정되지 않은 자리가 한눈에 구분된다
 - 슬롯 카드 hover 시 × 제거 버튼
 - **슬롯 ↔ 슬롯 드래그로 자리 교체** (엑셀의 잘라내기-붙여넣기 대체)
 - 포스마다 메모 한 줄 (엑셀의 "남는자리 새싹", "떡렙팟 400K 시간 되는사람끼리")
@@ -220,8 +240,8 @@ fc_meta
 | 조회 | `state` | `{since_revision?}` — 전체 스냅샷 |
 | 인원 | `player.create` | `{main_name, subs: [name, ...]}` |
 | | `player.delete` | `{player_id}` |
-| | `character.add` | `{player_id, name}` |
-| | `character.update` | `{character_id, name?, class?}` |
+| | `character.add` | `{player_id, name, is_placeholder?}` |
+| | `character.update` | `{character_id, name?, class?, is_placeholder?}` |
 | | `character.delete` | `{character_id}` |
 | 레이드 | `raid.create` / `raid.rename` / `raid.delete` | `{raid_id?, name?, memo?}` |
 | 포스 | `force.create` | `{raid_id, day_of_week, start_time, memo}` |
@@ -232,7 +252,10 @@ fc_meta
 
 ### 캐릭터 등록 흐름
 
-`player.create` / `character.add`는 **캐릭명만 받는다.** 서버가 `atul.php`로 조회해
+`is_placeholder`가 참이면 아툴 조회를 아예 건너뛰고 이름만 저장한다. 임시 캐릭터에 외부 API를
+호출해봐야 찾을 수 없는 이름이라 시간만 버린다.
+
+그 외의 경우 `player.create` / `character.add`는 **캐릭명만 받는다.** 서버가 `atul.php`로 조회해
 직업 · 아툴점수 · 아이템레벨을 자동으로 채운다. 조회에 실패하면 직업 빈 값 · 점수 NULL로
 등록하고, 이후 `character.update`로 손으로 고치거나 `atul.refresh`로 재시도할 수 있다.
 **외부 API 실패가 인원 등록을 막지 않는다.**
@@ -265,7 +288,9 @@ fc_meta
 
 1. 스키마 생성이 멱등하다 (두 번 실행해도 오류 없음)
 2. 플레이어 + 부캐 등록 시 `fc_characters`에 `is_main` 구분이 맞게 들어간다
-3. 중복 캐릭명 등록이 UNIQUE 제약으로 거부된다
+3. 실제 캐릭명 중복 등록이 거부되고, 같은 임시명은 다른 플레이어 밑에 등록된다
+3-1. 임시 캐릭터는 아툴 조회를 건너뛰고 직업·점수가 빈 채로 등록된다
+3-2. 임시 캐릭터를 실제 캐릭터로 전환하면 배치된 슬롯이 유지된 채 정보가 채워진다
 4. 포스 생성 시 빈 슬롯이 정확히 10행(파티1 5 + 파티2 5) 생긴다
 5. `slot.assign` 후 조회하면 배치가 남는다
 6. `slot.swap`이 두 슬롯의 캐릭터를 맞바꾼다

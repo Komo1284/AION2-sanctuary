@@ -184,11 +184,14 @@ function fc_init_schema(PDO $pdo) {
         atul_score      INT          NULL,
         item_level      INT          NULL,
         is_main         TINYINT(1)   NOT NULL DEFAULT 0,
+        is_placeholder  TINYINT(1)   NOT NULL DEFAULT 0,
         sort_order      INT          NOT NULL DEFAULT 0,
         atul_updated_at DATETIME     NULL,
-        UNIQUE KEY uq_char_name (char_name),
-        KEY idx_player (player_id)
+        KEY idx_player (player_id),
+        KEY idx_char_name (char_name)
     ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+    // char_name에 UNIQUE를 걸지 않는다 — "실제 캐릭터일 때만 유일"은 MySQL 부분 유니크
+    // 인덱스가 없어 표현할 수 없다. 검사는 fc_insert_character() 한 곳에서만 한다.
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS fc_raids (
         id         INT AUTO_INCREMENT PRIMARY KEY,
@@ -253,8 +256,8 @@ Expected: PASS — 8개 항목 전부 ✓, `전체 통과`
   - `fc_bump_revision(PDO $pdo): int`
   - `fc_revision(PDO $pdo): int`
   - `fc_create_player(PDO $pdo, string $mainName, array $subNames = [], $lookup = null): int` — player_id 반환. 이름 중복 시 `RuntimeException`
-  - `fc_add_character(PDO $pdo, int $playerId, string $name, $lookup = null): int` — character_id 반환
-  - `fc_update_character(PDO $pdo, int $id, array $fields): void` — `name`, `class`, `atul`, `item_level` 키만 허용
+  - `fc_add_character(PDO $pdo, int $playerId, string $name, $lookup = null, bool $isPlaceholder = false): int` — character_id 반환
+  - `fc_update_character(PDO $pdo, int $id, array $fields): void` — `name`, `class`, `atul`, `item_level`, `is_placeholder` 키만 허용
   - `fc_delete_character(PDO $pdo, int $id): void`
   - `fc_delete_player(PDO $pdo, int $id): void`
   - `fc_cleanup_test_data(PDO $pdo): void`
@@ -296,6 +299,53 @@ t_ok($dup_rejected, '이미 있는 캐릭명으로 등록하면 duplicate_name �
 $leftover = (int)$pdo->query("SELECT COUNT(*) FROM fc_players")->fetchColumn();
 $pdo->query("SELECT 1"); // no-op
 t_ok($leftover >= 1, '중복 실패가 다른 플레이어를 지우지 않는다');
+
+t_section('임시 캐릭터');
+
+$always_lookup = function ($name) {
+    return ['class' => '궁성', 'atul' => 39000, 'item_level' => 3400];
+};
+
+$phId = fc_add_character($pdo, $pid, 'zzTest_부캐1', $always_lookup, true);
+$ph = $pdo->query("SELECT char_class, atul_score, is_placeholder FROM fc_characters WHERE id = $phId")->fetch();
+t_eq((int)$ph['is_placeholder'], 1, '임시 캐릭터는 is_placeholder가 1이다');
+t_eq($ph['char_class'], '', '임시 캐릭터는 lookup을 건너뛰어 직업이 비어 있다');
+t_ok($ph['atul_score'] === null, '임시 캐릭터는 아툴점수가 NULL이다');
+
+// 같은 임시명을 다른 플레이어 밑에 등록할 수 있어야 한다 — "부캐1"은 누구나 쓴다
+$pid2ph = fc_create_player($pdo, 'zzTest_다른본캐');
+$phId2  = fc_add_character($pdo, $pid2ph, 'zzTest_부캐1', null, true);
+t_ok($phId2 > 0, '같은 임시명을 다른 플레이어 밑에 등록할 수 있다');
+
+$same_player_dup = false;
+try {
+    fc_add_character($pdo, $pid, 'zzTest_부캐1', null, true);
+} catch (RuntimeException $e) {
+    $same_player_dup = (strpos($e->getMessage(), 'duplicate_name') !== false);
+}
+t_ok($same_player_dup, '같은 플레이어 밑에 같은 임시명은 거부된다');
+
+// 실제 캐릭명은 임시명과 달리 전역에서 유일해야 한다
+$real_vs_ph = false;
+try {
+    fc_add_character($pdo, $pid2ph, 'zzTest_부캐A', null, false);
+} catch (RuntimeException $e) {
+    $real_vs_ph = (strpos($e->getMessage(), 'duplicate_name') !== false);
+}
+t_ok($real_vs_ph, '실제 캐릭명은 다른 플레이어 밑이어도 중복이 거부된다');
+
+t_section('임시 → 실제 전환');
+
+fc_update_character($pdo, $phId, ['name' => 'zzTest_확정캐릭', 'is_placeholder' => 0,
+                                  'class' => '마도성', 'atul' => 40100]);
+$promoted = $pdo->query("SELECT char_name, char_class, atul_score, is_placeholder
+                         FROM fc_characters WHERE id = $phId")->fetch();
+t_eq($promoted['char_name'], 'zzTest_확정캐릭', '전환하면 이름이 바뀐다');
+t_eq((int)$promoted['is_placeholder'], 0, '전환하면 is_placeholder가 0이 된다');
+t_eq($promoted['char_class'], '마도성', '전환하면 직업이 채워진다');
+t_eq((int)$promoted['atul_score'], 40100, '전환하면 아툴점수가 채워진다');
+
+fc_delete_player($pdo, $pid2ph);
 
 t_section('아툴 조회 주입');
 
@@ -373,24 +423,39 @@ function fc_apply_lookup($lookup, $name) {
     ];
 }
 
-function fc_name_exists(PDO $pdo, $name) {
-    $st = $pdo->prepare("SELECT 1 FROM fc_characters WHERE char_name = ?");
-    $st->execute([$name]);
+// 실제 캐릭명은 전역에서 유일해야 한다. 임시명("부캐1")은 여러 사람이 쓰므로
+// 같은 플레이어 안에서만 유일하면 된다. $excludeId는 수정 시 자기 자신을 제외하는 용도.
+function fc_name_exists(PDO $pdo, $name, $isPlaceholder, $playerId, $excludeId = 0) {
+    if ($isPlaceholder) {
+        $st = $pdo->prepare("SELECT 1 FROM fc_characters
+                             WHERE char_name = ? AND player_id = ? AND id <> ?");
+        $st->execute([$name, $playerId, (int)$excludeId]);
+    } else {
+        $st = $pdo->prepare("SELECT 1 FROM fc_characters
+                             WHERE char_name = ? AND is_placeholder = 0 AND id <> ?");
+        $st->execute([$name, (int)$excludeId]);
+    }
     return (bool)$st->fetch();
 }
 
-function fc_insert_character(PDO $pdo, $playerId, $name, $isMain, $sortOrder, $lookup) {
+// 캐릭터를 만드는 모든 경로가 이 함수를 지난다 — 중복 검사에 우회로를 두지 않는다.
+function fc_insert_character(PDO $pdo, $playerId, $name, $isMain, $sortOrder, $lookup, $isPlaceholder = false) {
     $name = trim($name);
     if ($name === '') throw new RuntimeException('empty_name');
-    if (fc_name_exists($pdo, $name)) throw new RuntimeException('duplicate_name:' . $name);
+    if (fc_name_exists($pdo, $name, $isPlaceholder, $playerId)) {
+        throw new RuntimeException('duplicate_name:' . $name);
+    }
 
-    $info = fc_apply_lookup($lookup, $name);
+    // 임시 캐릭터는 외부 API에 없는 이름이므로 조회를 건너뛴다
+    $info = $isPlaceholder ? ['class' => '', 'atul' => null, 'item_level' => null]
+                           : fc_apply_lookup($lookup, $name);
+
     $st = $pdo->prepare("INSERT INTO fc_characters
-        (player_id, char_name, char_class, atul_score, item_level, is_main, sort_order, atul_updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        (player_id, char_name, char_class, atul_score, item_level, is_main, is_placeholder, sort_order, atul_updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $st->execute([
         $playerId, $name, $info['class'], $info['atul'], $info['item_level'],
-        $isMain ? 1 : 0, $sortOrder,
+        $isMain ? 1 : 0, $isPlaceholder ? 1 : 0, $sortOrder,
         $info['atul'] === null ? null : date('Y-m-d H:i:s'),
     ]);
     return (int)$pdo->lastInsertId();
@@ -405,7 +470,8 @@ function fc_create_player(PDO $pdo, $mainName, array $subNames = [], $lookup = n
     $all = array_values(array_filter($all, function ($n) { return $n !== ''; }));
     if (count($all) !== count(array_unique($all))) throw new RuntimeException('duplicate_name:입력 안에 같은 이름');
     foreach ($all as $n) {
-        if (fc_name_exists($pdo, $n)) throw new RuntimeException('duplicate_name:' . $n);
+        // player.create로는 실제 캐릭터만 만든다 — 임시 캐릭터는 나중에 character.add로 붙인다
+        if (fc_name_exists($pdo, $n, false, 0)) throw new RuntimeException('duplicate_name:' . $n);
     }
 
     $nextOrder = (int)$pdo->query("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM fc_players")->fetchColumn();
@@ -419,18 +485,30 @@ function fc_create_player(PDO $pdo, $mainName, array $subNames = [], $lookup = n
     return $playerId;
 }
 
-function fc_add_character(PDO $pdo, $playerId, $name, $lookup = null) {
+function fc_add_character(PDO $pdo, $playerId, $name, $lookup = null, $isPlaceholder = false) {
     $st = $pdo->prepare("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM fc_characters WHERE player_id = ?");
     $st->execute([$playerId]);
     $order = (int)$st->fetchColumn();
 
-    $id = fc_insert_character($pdo, $playerId, $name, false, $order, $lookup);
+    $id = fc_insert_character($pdo, $playerId, $name, false, $order, $lookup, $isPlaceholder);
     fc_bump_revision($pdo);
     return $id;
 }
 
+// 임시 → 실제 전환도 이 함수로 한다. 슬롯은 character_id를 가리키므로
+// 배치된 자리는 그대로 유지되고 내용만 확정된다.
 function fc_update_character(PDO $pdo, $id, array $fields) {
-    $map = ['name' => 'char_name', 'class' => 'char_class', 'atul' => 'atul_score', 'item_level' => 'item_level'];
+    $cur = $pdo->prepare("SELECT player_id, is_placeholder FROM fc_characters WHERE id = ?");
+    $cur->execute([$id]);
+    $row = $cur->fetch();
+    if (!$row) throw new RuntimeException('not_found');
+
+    // 이름 중복 검사는 "바뀐 뒤의 is_placeholder" 기준으로 한다
+    $nextPlaceholder = array_key_exists('is_placeholder', $fields)
+        ? (bool)$fields['is_placeholder'] : (bool)$row['is_placeholder'];
+
+    $map = ['name' => 'char_name', 'class' => 'char_class', 'atul' => 'atul_score',
+            'item_level' => 'item_level', 'is_placeholder' => 'is_placeholder'];
     $sets = [];
     $args = [];
     foreach ($map as $key => $col) {
@@ -438,10 +516,12 @@ function fc_update_character(PDO $pdo, $id, array $fields) {
         if ($key === 'name') {
             $newName = trim($fields['name']);
             if ($newName === '') throw new RuntimeException('empty_name');
-            $st = $pdo->prepare("SELECT 1 FROM fc_characters WHERE char_name = ? AND id <> ?");
-            $st->execute([$newName, $id]);
-            if ($st->fetch()) throw new RuntimeException('duplicate_name:' . $newName);
+            if (fc_name_exists($pdo, $newName, $nextPlaceholder, (int)$row['player_id'], $id)) {
+                throw new RuntimeException('duplicate_name:' . $newName);
+            }
             $sets[] = "$col = ?"; $args[] = $newName;
+        } elseif ($key === 'is_placeholder') {
+            $sets[] = "$col = ?"; $args[] = $nextPlaceholder ? 1 : 0;
         } else {
             $sets[] = "$col = ?";
             $args[] = $fields[$key] === null || $fields[$key] === '' ? null : $fields[$key];
@@ -967,7 +1047,7 @@ function fc_state(PDO $pdo) {
 
     $characters = $pdo->query(
         "SELECT id, player_id, char_name AS name, char_class AS class,
-                atul_score AS atul, item_level, is_main, sort_order
+                atul_score AS atul, item_level, is_main, is_placeholder, sort_order
          FROM fc_characters ORDER BY player_id, sort_order, id")->fetchAll();
 
     $raids  = $pdo->query("SELECT id, name, memo, sort_order FROM fc_raids ORDER BY sort_order, id")->fetchAll();
@@ -985,7 +1065,7 @@ function fc_state(PDO $pdo) {
         unset($r);
     };
     $toInt($players, ['id', 'sort_order']);
-    $toInt($characters, ['id', 'player_id', 'is_main', 'sort_order'], ['atul', 'item_level']);
+    $toInt($characters, ['id', 'player_id', 'is_main', 'is_placeholder', 'sort_order'], ['atul', 'item_level']);
     $toInt($raids, ['id', 'sort_order']);
     $toInt($forces, ['id', 'raid_id', 'force_no', 'sort_order']);
     $toInt($slots, ['id', 'force_id', 'party_no', 'slot_no'], ['character_id']);
@@ -1195,6 +1275,27 @@ $call(['action' => 'slot.swap', 'slot_id_a' => (int)$apiSlots[0]['id'], 'slot_id
 $moved = $pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$apiSlots[9]['id'])->fetchColumn();
 t_eq((int)$moved, $apiCid, 'slot.swap이 자리를 바꾼다');
 
+t_section('API 임시 캐릭터');
+
+$phRes = $call(['action' => 'character.add', 'player_id' => $apiPid,
+                'name' => 'zzTest_API부캐1', 'is_placeholder' => true]);
+$apiPhId = (int)$phRes['character_id'];
+$phRow = $pdo->query("SELECT is_placeholder, char_class FROM fc_characters WHERE id = $apiPhId")->fetch();
+t_eq((int)$phRow['is_placeholder'], 1, 'character.add가 임시 캐릭터를 만든다');
+t_eq($phRow['char_class'], '', '임시 캐릭터는 직업이 비어 있다');
+
+// 임시 캐릭터를 슬롯에 배치한 뒤 확정해도 자리가 유지되어야 한다
+$call(['action' => 'slot.assign', 'slot_id' => (int)$apiSlots[3]['id'], 'character_id' => $apiPhId]);
+$promoteRes = $call(['action' => 'character.promote', 'character_id' => $apiPhId, 'name' => 'zzTest_API확정']);
+t_ok(array_key_exists('looked_up', $promoteRes), 'character.promote가 looked_up을 알려준다');
+
+$promotedRow = $pdo->query("SELECT char_name, is_placeholder FROM fc_characters WHERE id = $apiPhId")->fetch();
+t_eq($promotedRow['char_name'], 'zzTest_API확정', 'promote가 이름을 바꾼다');
+t_eq((int)$promotedRow['is_placeholder'], 0, 'promote가 임시 표시를 없앤다');
+
+$stillThere = $pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$apiSlots[3]['id'])->fetchColumn();
+t_eq((int)$stillThere, $apiPhId, 'promote 후에도 배치된 슬롯이 그대로 유지된다');
+
 t_section('API 오류 처리');
 
 $err = '';
@@ -1276,17 +1377,34 @@ function fc_api_dispatch(PDO $pdo, array $req, $lookup) {
             $pid  = fc_req_int($req, 'player_id');
             $name = fc_req_str($req, 'name');
             if ($pid <= 0 || $name === '') throw new RuntimeException('bad_request');
-            return ['character_id' => fc_add_character($pdo, $pid, $name, $lookup)];
+            $isPh = !empty($req['is_placeholder']);
+            return ['character_id' => fc_add_character($pdo, $pid, $name, $lookup, $isPh)];
 
         case 'character.update':
             $cid = fc_req_int($req, 'character_id');
             if ($cid <= 0) throw new RuntimeException('bad_request');
             $fields = [];
-            foreach (['name', 'class', 'atul', 'item_level'] as $k) {
+            foreach (['name', 'class', 'atul', 'item_level', 'is_placeholder'] as $k) {
                 if (array_key_exists($k, $req)) $fields[$k] = $req[$k];
             }
             fc_update_character($pdo, $cid, $fields);
             return ['updated' => $cid];
+
+        // 임시 캐릭터를 실제 캐릭터로 확정한다. 이름을 바꾸고 아툴을 조회해 한 번에 채운다.
+        // 배치된 슬롯은 character_id를 가리키므로 그대로 유지된다.
+        case 'character.promote':
+            $cid  = fc_req_int($req, 'character_id');
+            $name = fc_req_str($req, 'name');
+            if ($cid <= 0 || $name === '') throw new RuntimeException('bad_request');
+            $info = is_callable($lookup) ? call_user_func($lookup, $name) : null;
+            $fields = ['name' => $name, 'is_placeholder' => 0];
+            if (is_array($info)) {
+                $fields['class']      = $info['class'];
+                $fields['atul']       = $info['atul'];
+                $fields['item_level'] = $info['item_level'];
+            }
+            fc_update_character($pdo, $cid, $fields);
+            return ['character_id' => $cid, 'looked_up' => is_array($info)];
 
         case 'character.delete':
             $cid = fc_req_int($req, 'character_id');
@@ -1885,14 +2003,16 @@ FC.renderSlot = function (slot, dupIds) {
 
   var main = FC.mainOf(c.player_id);
   var isDup = dupIds.indexOf(Number(c.id)) !== -1;
+  var isPh = Number(c.is_placeholder) === 1;
   var node = FC.el('div', {
-    class: 'fc-slot is-filled' + (isDup ? ' is-dup' : ''),
+    class: 'fc-slot is-filled' + (isDup ? ' is-dup' : '') + (isPh ? ' is-placeholder' : ''),
     'data-slot-id': slot.id, 'data-character-id': c.id, draggable: 'true',
     style: '--slot-color:' + FC.classColor(c.class)
   }, [
     FC.el('span', { class: 'fc-slot-name', text: c.name }),
     FC.el('span', { class: 'fc-slot-owner',
-      text: (main && main.id !== c.id ? main.name : c.class || '') })
+      text: isPh ? (main ? main.name + ' · 미정' : '미정')
+                 : (main && main.id !== c.id ? main.name : c.class || '') })
   ]);
   node.appendChild(FC.el('button', { class: 'fc-slot-x', type: 'button', 'data-slot-id': slot.id, text: '×' }));
   return node;
@@ -1966,6 +2086,7 @@ FC.render = function () {
   border:1px solid var(--slot-color);cursor:grab;}
 .fc-slot.is-filled:active{cursor:grabbing;}
 .fc-slot.is-dup{outline:2px solid var(--danger);outline-offset:-2px;}
+.fc-slot.is-placeholder{background:var(--panel-2);border:1px dashed var(--line-2);color:var(--muted);}
 .fc-slot-name{font-weight:700;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .fc-slot-owner{font-size:10px;color:var(--muted);}
 .fc-slot-x{display:none;position:absolute;top:2px;right:4px;background:transparent;border:none;
@@ -2266,19 +2387,31 @@ FC.openRoster = function () {
 
     var rows = FC.el('div', { class: 'fc-manage-chars' });
     chars.forEach(function (c) {
-      rows.appendChild(FC.el('div', { class: 'fc-manage-char' }, [
-        FC.el('span', { class: 'fc-dot', style: 'background:' + FC.classColor(c.class) }),
+      var isPh = Number(c.is_placeholder) === 1;
+      var row = FC.el('div', { class: 'fc-manage-char' + (isPh ? ' is-placeholder' : '') }, [
+        FC.el('span', { class: 'fc-dot', style: 'background:' + (isPh ? '#4a5a78' : FC.classColor(c.class)) }),
         FC.el('span', { class: 'fc-manage-name', text: (Number(c.is_main) === 1 ? '⭐ ' : '') + c.name }),
         FC.el('span', { class: 'fc-manage-meta',
-          text: (c.class || '직업?') + ' · ' + (c.atul ? c.atul.toLocaleString() : '점수?') }),
-        FC.el('button', { class: 'fc-icon-btn fc-char-refresh', 'data-character-id': c.id, type: 'button', text: '갱신' }),
-        FC.el('button', { class: 'fc-icon-btn fc-char-del', 'data-character-id': c.id, type: 'button', text: '삭제' })
-      ]));
+          text: isPh ? '임시 · 미정'
+                     : ((c.class || '직업?') + ' · ' + (c.atul ? c.atul.toLocaleString() : '점수?')) })
+      ]);
+      // 임시 캐릭터는 아툴 갱신 대신 "확정" — 실제 캐릭명을 받아 조회까지 한 번에 한다
+      if (isPh) {
+        row.appendChild(FC.el('button', { class: 'fc-icon-btn fc-char-promote',
+          'data-character-id': c.id, type: 'button', text: '확정' }));
+      } else {
+        row.appendChild(FC.el('button', { class: 'fc-icon-btn fc-char-refresh',
+          'data-character-id': c.id, type: 'button', text: '갱신' }));
+      }
+      row.appendChild(FC.el('button', { class: 'fc-icon-btn fc-char-del',
+        'data-character-id': c.id, type: 'button', text: '삭제' }));
+      rows.appendChild(row);
     });
 
     var addSub = FC.el('div', { class: 'fc-manage-add' }, [
       FC.el('input', { class: 'fc-input fc-add-sub-name', type: 'text', placeholder: '부캐명 추가' }),
-      FC.el('button', { class: 'fc-btn fc-add-sub-go', 'data-player-id': p.id, type: 'button', text: '추가' })
+      FC.el('button', { class: 'fc-btn fc-add-sub-go', 'data-player-id': p.id, type: 'button', text: '추가' }),
+      FC.el('button', { class: 'fc-btn fc-add-ph-go', 'data-player-id': p.id, type: 'button', text: '임시로 추가' })
     ]);
 
     list.appendChild(FC.el('div', { class: 'fc-manage-player' }, [
@@ -2359,6 +2492,47 @@ FC.bindGlobalEvents = function () {
         });
       return;
     }
+
+    // 어떤 캐릭터를 보낼지 안 정했을 때 쓰는 자리표시 카드.
+    // 입력칸이 비어 있으면 <본캐명>부캐N 을 자동으로 붙인다.
+    if (t.classList.contains('fc-add-ph-go')) {
+      var phOwnerId = Number(t.getAttribute('data-player-id'));
+      var phInput = t.parentNode.querySelector('.fc-add-sub-name');
+      var phName = phInput.value.trim();
+      if (!phName) {
+        var phMainChar = FC.mainOf(phOwnerId);
+        var phCount = FC.charsOfPlayer(phOwnerId).filter(function (c) {
+          return Number(c.is_placeholder) === 1;
+        }).length;
+        phName = (phMainChar ? phMainChar.name : '') + '부캐' + (phCount + 1);
+      }
+      t.disabled = true;
+      FC.api('character.add', { player_id: phOwnerId, name: phName, is_placeholder: true })
+        .then(function () { FC.toast(phName + ' 추가 완료', 'ok'); return FC.refresh(); })
+        .then(function () { FC.closeModal(); FC.openRoster(); })
+        .catch(function (err) { FC.toast(FC.errorText(err), 'err'); t.disabled = false; });
+      return;
+    }
+
+    if (t.classList.contains('fc-char-promote')) {
+      var promoteId = Number(t.getAttribute('data-character-id'));
+      var realName = prompt('실제 캐릭명을 입력하면 직업·아툴점수를 조회해 확정합니다.\n배치된 자리는 그대로 유지됩니다.', '');
+      if (realName === null) return;
+      realName = realName.trim();
+      if (!realName) { FC.toast('캐릭명을 입력하세요', 'err'); return; }
+      t.disabled = true; t.textContent = '조회중';
+      FC.api('character.promote', { character_id: promoteId, name: realName })
+        .then(function (data) {
+          FC.toast(data && data.looked_up ? realName + ' 확정 완료' : realName + ' 확정 (조회 실패 — 직업은 직접 입력)', 'ok');
+          return FC.refresh();
+        })
+        .then(function () { FC.closeModal(); FC.openRoster(); })
+        .catch(function (err) {
+          FC.toast(FC.errorText(err), 'err');
+          t.disabled = false; t.textContent = '확정';
+        });
+      return;
+    }
   });
 
   document.addEventListener('keydown', function (e) {
@@ -2391,6 +2565,7 @@ FC.bindGlobalEvents = function () {
 .fc-manage-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px;}
 .fc-manage-chars{display:flex;flex-direction:column;gap:4px;}
 .fc-manage-char{display:flex;align-items:center;gap:7px;font-size:12px;padding:4px 2px;}
+.fc-manage-char.is-placeholder .fc-manage-name{color:var(--muted);font-style:italic;}
 .fc-manage-name{font-weight:700;}
 .fc-manage-meta{color:var(--dim);font-size:11px;margin-left:auto;}
 .fc-manage-add{display:flex;gap:6px;margin-top:8px;}
@@ -2636,21 +2811,28 @@ FC.openPopover = function (playerId, anchorEl) {
 
   chars.forEach(function (c) {
     var placed = placedByChar[String(c.id)] || [];
+    var isPh = Number(c.is_placeholder) === 1;
     var row = FC.el('div', {
-      class: 'fc-pop-row' + (placed.length ? ' is-placed' : ''),
+      class: 'fc-pop-row' + (placed.length ? ' is-placed' : '') + (isPh ? ' is-placeholder' : ''),
       draggable: 'true', 'data-character-id': c.id,
       style: '--slot-color:' + FC.classColor(c.class)
     }, [
-      FC.el('span', { class: 'fc-dot', style: 'background:' + FC.classColor(c.class) }),
+      FC.el('span', { class: 'fc-dot', style: 'background:' + (isPh ? '#4a5a78' : FC.classColor(c.class)) }),
       FC.el('span', { class: 'fc-pop-name', text: (Number(c.is_main) === 1 ? '⭐ ' : '') + c.name }),
       FC.el('span', { class: 'fc-pop-meta',
-        text: (c.class || '직업?') + ' · ' + (c.atul ? c.atul.toLocaleString() : '—') })
+        text: isPh ? '미정' : ((c.class || '직업?') + ' · ' + (c.atul ? c.atul.toLocaleString() : '—')) })
     ]);
     if (placed.length) {
       row.appendChild(FC.el('span', { class: 'fc-pop-tag', text: placed.join(',') + '포스' }));
     }
     pop.appendChild(row);
   });
+
+  // 어떤 부캐를 보낼지 아직 안 정했을 때 쓰는 자리표시 카드
+  pop.appendChild(FC.el('button', {
+    class: 'fc-btn fc-block fc-pop-add-ph', type: 'button',
+    'data-player-id': playerId, text: '+ 임시 캐릭 추가'
+  }));
 
   if (!FC.activeRaidId) {
     pop.appendChild(FC.el('p', { class: 'fc-hint', text: '레이드를 먼저 선택하세요.' }));
@@ -2775,6 +2957,29 @@ FC.bindDragEvents = function () {
       return;
     }
 
+    if (t.classList.contains('fc-pop-add-ph')) {
+      var phPid = Number(t.getAttribute('data-player-id'));
+      var phMain = FC.mainOf(phPid);
+      var existing = FC.charsOfPlayer(phPid).filter(function (c) {
+        return Number(c.is_placeholder) === 1;
+      }).length;
+      var suggested = (phMain ? phMain.name : '') + '부캐' + (existing + 1);
+      var typed = prompt('임시 캐릭 이름', suggested);
+      if (typed === null) return;
+      typed = typed.trim();
+      if (!typed) { FC.toast('이름을 입력하세요', 'err'); return; }
+
+      FC.api('character.add', { player_id: phPid, name: typed, is_placeholder: true })
+        .then(function () { return FC.refresh(); })
+        .then(function () {
+          FC.toast(typed + ' 추가 완료', 'ok');
+          var again = document.querySelector('.fc-roster-card[data-player-id="' + phPid + '"]');
+          if (again) FC.openPopover(phPid, again);
+        })
+        .catch(function (err) { FC.toast(FC.errorText(err), 'err'); });
+      return;
+    }
+
     if (!t.closest || !t.closest('#fc-popover')) FC.closePopover();
 ```
 
@@ -2794,6 +2999,8 @@ FC.bindDragEvents = function () {
 .fc-pop-row:hover{border-color:var(--slot-color);}
 .fc-pop-row:active{cursor:grabbing;}
 .fc-pop-row.is-placed{opacity:.45;}
+.fc-pop-row.is-placeholder{border-style:dashed;border-color:var(--line-2);color:var(--muted);}
+.fc-pop-add-ph{margin-top:6px;font-size:12px;color:var(--dim);}
 .fc-pop-name{font-size:13px;font-weight:700;}
 .fc-pop-meta{font-size:10px;color:var(--dim);margin-left:auto;}
 .fc-pop-tag{font-size:10px;color:var(--gold);border:1px solid var(--gold-2);border-radius:6px;padding:1px 5px;}
@@ -2878,6 +3085,56 @@ $B console --errors
 ```
 
 Expected: `2` — 슬롯 간 이동 후에도 채워진 칸 수는 그대로다. 콘솔 에러 없음.
+
+- [ ] **Step 5: 임시 캐릭터 흐름 확인**
+
+`prompt()`를 쓰므로 대화상자를 미리 수락하도록 설정한 뒤 팝오버의 `+ 임시 캐릭 추가`를 누른다.
+
+```bash
+B=~/.claude/skills/gstack/browse/dist/browse
+$B goto 'http://14.63.164.109/sanctuary/'
+$B click '.fc-roster-card'
+$B js "document.querySelector('.fc-pop-add-ph').textContent"
+```
+
+Expected: `+ 임시 캐릭 추가`
+
+```bash
+$B dialog-accept 'zzUI_본캐부캐1'
+$B click '.fc-pop-add-ph'
+$B js "await new Promise(r=>setTimeout(r,1200)); JSON.stringify(FC.state.characters.filter(c => c.is_placeholder === 1).map(c => ({name:c.name, cls:c.class, atul:c.atul})))"
+```
+
+Expected: `[{"name":"zzUI_본캐부캐1","cls":"","atul":null}]` — 임시 캐릭터는 아툴 조회를
+건너뛰므로 직업과 점수가 비어 있다. 대화상자에 아무것도 입력하지 않고 수락하면 제안된
+`zzUI_본캐부캐1` 이름이 그대로 쓰인다.
+
+```bash
+$B click '.fc-roster-card'
+$B js "
+const row = document.querySelector('.fc-pop-row.is-placeholder');
+const empty = document.querySelector('.fc-slot.is-empty');
+const dt = new DataTransfer();
+row.dispatchEvent(new DragEvent('dragstart', {bubbles:true, dataTransfer:dt}));
+empty.dispatchEvent(new DragEvent('dragover', {bubbles:true, cancelable:true, dataTransfer:dt}));
+empty.dispatchEvent(new DragEvent('drop', {bubbles:true, cancelable:true, dataTransfer:dt}));
+row.dispatchEvent(new DragEvent('dragend', {bubbles:true, dataTransfer:dt}));
+'dropped-placeholder';
+"
+$B js "await new Promise(r=>setTimeout(r,900)); JSON.stringify({phSlots: document.querySelectorAll('.fc-slot.is-placeholder').length})"
+$B screenshot /private/tmp/claude-501/-Users-eztake-japanMES-sanctuary/d61ea218-6d2a-4eb5-a1dd-e1b74ecefa74/scratchpad/fc-placeholder.png
+$B console --errors
+```
+
+Expected: `{"phSlots":1}` — 임시 캐릭터가 회색 점선 슬롯으로 배치된다.
+스크린샷을 Read로 열어 확정된 자리와 미정 자리가 시각적으로 구분되는지 확인한다.
+
+```bash
+$B click '#fc-open-roster'
+$B js "document.querySelectorAll('.fc-char-promote').length"
+```
+
+Expected: `1` — 임시 캐릭터 행에만 「확정」 버튼이 있고 실제 캐릭터 행에는 「갱신」이 있다.
 
 ---
 
@@ -3036,6 +3293,9 @@ Expected: 서버 HEAD가 로컬과 같은 커밋
 | 고정 2파티 × 5슬롯 | Task 3 (`fc_create_force` 10행) |
 | 같은 레이드 내 중복 경고 | Task 5 (`fc_duplicates`), Task 9 (`.fc-warn`, `.is-dup`) |
 | 캐릭명+직업+아툴+아이템레벨 | Task 2·6 |
+| 임시 캐릭터 카드 (아툴 조회 건너뜀) | Task 1(컬럼)·2(store+테스트)·7(API)·9·13(팝오버·슬롯 표시) |
+| 임시 → 실제 전환 시 배치 유지 | Task 7 (`character.promote` + 테스트), Task 11 (「확정」 버튼) |
+| 실제 캐릭명만 전역 유일, 임시명은 플레이어 내 유일 | Task 2 (`fc_name_exists` + 테스트 4건) |
 | 누구나 편집 (비번 게이트 하나) | Task 8 (게이트), Task 7 (`unauthorized` 검사) |
 | 낙관적 UI + 실패 롤백 | Task 13 (`FC.dropOnSlot`) |
 | 연결 끊김 배너 / 토스트 | Task 10 |
@@ -3055,3 +3315,11 @@ Expected: 서버 HEAD가 로컬과 같은 커밋
 - `fc_api_dispatch($pdo, $req, $lookup)` 3인자 시그니처를 Task 7 테스트와 `api.php` HTTP 블록이 동일하게 쓴다.
 - 슬롯 DOM 계약 `.fc-slot[data-slot-id]`을 Task 9가 만들고 Task 13이 소비한다.
 - `DAYS` 상수는 Task 9에서 정의되어 Task 12에서 쓰인다.
+- `fc_name_exists($pdo, $name, $isPlaceholder, $playerId, $excludeId = 0)` 5인자 시그니처를
+  `fc_insert_character()`(Task 2), `fc_create_player()`(Task 2), `fc_update_character()`(Task 2)가
+  모두 같은 순서로 호출한다.
+- `is_placeholder`는 DB·state·JS 전부 **정수 0/1**이다. JS는 `Number(c.is_placeholder) === 1`로
+  비교하고 불리언 진리값에 의존하지 않는다.
+- 임시 캐릭터를 만드는 UI 경로가 둘(팝오버 `+ 임시 캐릭 추가`, 명단관리 「임시로 추가」)이지만
+  둘 다 같은 API `character.add {is_placeholder:true}`를 호출하고, 서버는
+  `fc_insert_character()` 한 곳에서만 검사한다.
