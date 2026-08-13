@@ -244,6 +244,52 @@ t_eq((int)$pdo->query("SELECT COUNT(*) FROM fc_raids WHERE id = $rid")->fetchCol
 t_eq((int)$pdo->query("SELECT COUNT(*) FROM fc_forces WHERE raid_id = $rid")->fetchColumn(), 0, '소속 포스가 함께 삭제된다');
 t_eq((int)$pdo->query("SELECT COUNT(*) FROM fc_slots WHERE force_id IN ($fid2, $fid3)")->fetchColumn(), 0, '소속 포스의 슬롯도 함께 삭제된다');
 
+t_section('배치와 자리 교체');
+
+$pid2 = fc_create_player($pdo, 'zzTest_대섬', ['zzTest_대섬부캐']);
+$cids = $pdo->query("SELECT id FROM fc_characters WHERE player_id = $pid2 ORDER BY sort_order")
+            ->fetchAll(PDO::FETCH_COLUMN);
+$cMain = (int)$cids[0];
+$cSub  = (int)$cids[1];
+
+$rid2  = fc_create_raid($pdo, 'zzTest_침식');
+$fidA  = fc_create_force($pdo, $rid2, '토', '19:30', '');
+$slots = fc_slot_ids($pdo, $fidA);
+t_eq(count($slots), 10, 'fc_slot_ids가 슬롯 10개를 돌려준다');
+t_eq((int)$slots[0]['party_no'], 1, '첫 슬롯은 1파티다');
+t_eq((int)$slots[0]['slot_no'], 1, '첫 슬롯은 1번 칸이다');
+t_eq((int)$slots[5]['party_no'], 2, '여섯 번째 슬롯부터 2파티다');
+
+fc_assign_slot($pdo, (int)$slots[0]['id'], $cMain);
+$got = $pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$slots[0]['id'])->fetchColumn();
+t_eq((int)$got, $cMain, '배치 후 조회하면 캐릭터가 남아 있다');
+
+fc_assign_slot($pdo, (int)$slots[5]['id'], $cSub);
+fc_swap_slots($pdo, (int)$slots[0]['id'], (int)$slots[5]['id']);
+$a = (int)$pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$slots[0]['id'])->fetchColumn();
+$b = (int)$pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$slots[5]['id'])->fetchColumn();
+t_eq($a, $cSub, 'swap 후 A슬롯에 B의 캐릭터가 있다');
+t_eq($b, $cMain, 'swap 후 B슬롯에 A의 캐릭터가 있다');
+
+fc_swap_slots($pdo, (int)$slots[1]['id'], (int)$slots[0]['id']);
+$emptyNow = $pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$slots[0]['id'])->fetchColumn();
+$movedTo  = (int)$pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$slots[1]['id'])->fetchColumn();
+t_ok($emptyNow === null, '빈 슬롯과 swap하면 원래 자리가 빈다');
+t_eq($movedTo, $cSub, '빈 슬롯과 swap하면 캐릭터가 그 자리로 옮겨간다');
+
+fc_assign_slot($pdo, (int)$slots[1]['id'], null);
+$cleared = $pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$slots[1]['id'])->fetchColumn();
+t_ok($cleared === null, 'character_id에 null을 넣으면 슬롯이 비워진다');
+
+t_section('캐릭터 삭제 시 참조 정리');
+
+fc_assign_slot($pdo, (int)$slots[2]['id'], $cMain);
+fc_delete_character($pdo, $cMain);
+$after = $pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$slots[2]['id'])->fetchColumn();
+t_ok($after === null, '캐릭터를 지우면 배치된 슬롯이 비워진다');
+t_eq((int)$pdo->query("SELECT COUNT(*) FROM fc_slots WHERE force_id = $fidA")->fetchColumn(), 10,
+     '캐릭터를 지워도 슬롯 행 10개는 그대로 남는다');
+
 fc_cleanup_test_data($pdo);
 
 exit(t_summary());
