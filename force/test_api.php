@@ -5,6 +5,7 @@
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/schema.php';
 require_once __DIR__ . '/store.php';
+require_once __DIR__ . '/api.php';
 
 $T_pass = 0;
 $T_fail = 0;
@@ -342,6 +343,87 @@ t_eq(count($mySlots), 10, 'state에 그 포스의 슬롯 10개가 담긴다');
 
 t_ok(isset($state['duplicates'][(string)$rid3]), '같은 포스 안 중복도 duplicates에 잡힌다');
 t_eq((int)$state['duplicates'][(string)$rid3][0]['character_id'], $cid3, '중복된 캐릭터 id가 맞다');
+
+t_section('API 디스패처');
+
+$noLookup = function ($name) { return null; };
+$call = function ($req) use ($pdo, $noLookup) {
+    return fc_api_dispatch($pdo, $req, $noLookup);
+};
+
+$res = $call(['action' => 'player.create', 'main_name' => 'zzTest_API본캐', 'subs' => ['zzTest_API부캐']]);
+t_ok(isset($res['player_id']) && $res['player_id'] > 0, 'player.create가 player_id를 돌려준다');
+$apiPid = (int)$res['player_id'];
+
+$res2 = $call(['action' => 'raid.create', 'name' => 'zzTest_API레이드']);
+$apiRid = (int)$res2['raid_id'];
+t_ok($apiRid > 0, 'raid.create가 raid_id를 돌려준다');
+
+$res3 = $call(['action' => 'force.create', 'raid_id' => $apiRid,
+               'day_of_week' => '금', 'start_time' => '21:30', 'memo' => '']);
+$apiFid = (int)$res3['force_id'];
+t_ok($apiFid > 0, 'force.create가 force_id를 돌려준다');
+
+$st8 = $call(['action' => 'state']);
+t_ok(isset($st8['revision']) && isset($st8['slots']), 'state가 스냅샷을 돌려준다');
+
+$apiSlots = array_values(array_filter($st8['slots'], function ($s) use ($apiFid) {
+    return (int)$s['force_id'] === $apiFid;
+}));
+t_eq(count($apiSlots), 10, 'state의 슬롯에 새 포스 10칸이 보인다');
+
+$apiCid = 0;
+foreach ($st8['characters'] as $c) { if ($c['name'] === 'zzTest_API본캐') { $apiCid = (int)$c['id']; } }
+$call(['action' => 'slot.assign', 'slot_id' => (int)$apiSlots[0]['id'], 'character_id' => $apiCid]);
+$after = $pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$apiSlots[0]['id'])->fetchColumn();
+t_eq((int)$after, $apiCid, 'slot.assign이 배치를 저장한다');
+
+$call(['action' => 'slot.swap', 'slot_id_a' => (int)$apiSlots[0]['id'], 'slot_id_b' => (int)$apiSlots[9]['id']]);
+$moved = $pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$apiSlots[9]['id'])->fetchColumn();
+t_eq((int)$moved, $apiCid, 'slot.swap이 자리를 바꾼다');
+
+t_section('API 임시 캐릭터');
+
+$phRes = $call(['action' => 'character.add', 'player_id' => $apiPid,
+                'name' => 'zzTest_API부캐1', 'is_placeholder' => true]);
+$apiPhId = (int)$phRes['character_id'];
+$phRow = $pdo->query("SELECT is_placeholder, char_class FROM fc_characters WHERE id = $apiPhId")->fetch();
+t_eq((int)$phRow['is_placeholder'], 1, 'character.add가 임시 캐릭터를 만든다');
+t_eq($phRow['char_class'], '', '임시 캐릭터는 직업이 비어 있다');
+
+// 임시 캐릭터를 슬롯에 배치한 뒤 확정해도 자리가 유지되어야 한다
+$call(['action' => 'slot.assign', 'slot_id' => (int)$apiSlots[3]['id'], 'character_id' => $apiPhId]);
+$promoteRes = $call(['action' => 'character.promote', 'character_id' => $apiPhId, 'name' => 'zzTest_API확정']);
+t_ok(array_key_exists('looked_up', $promoteRes), 'character.promote가 looked_up을 알려준다');
+
+$promotedRow = $pdo->query("SELECT char_name, is_placeholder FROM fc_characters WHERE id = $apiPhId")->fetch();
+t_eq($promotedRow['char_name'], 'zzTest_API확정', 'promote가 이름을 바꾼다');
+t_eq((int)$promotedRow['is_placeholder'], 0, 'promote가 임시 표시를 없앤다');
+
+$stillThere = $pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$apiSlots[3]['id'])->fetchColumn();
+t_eq((int)$stillThere, $apiPhId, 'promote 후에도 배치된 슬롯이 그대로 유지된다');
+
+t_section('API 오류 처리');
+
+$err = '';
+try { $call(['action' => 'nope.nope']); }
+catch (RuntimeException $e) { $err = $e->getMessage(); }
+t_eq($err, 'unknown_action', '모르는 action은 unknown_action 예외를 던진다');
+
+$err2 = '';
+try { $call(['action' => 'player.create', 'main_name' => 'zzTest_API본캐']); }
+catch (RuntimeException $e) { $err2 = $e->getMessage(); }
+t_ok(strpos($err2, 'duplicate_name') === 0, '중복 캐릭명은 duplicate_name 예외로 나온다');
+
+$err3 = '';
+try { $call(['action' => 'force.create', 'raid_id' => 0, 'day_of_week' => '', 'start_time' => '']); }
+catch (RuntimeException $e) { $err3 = $e->getMessage(); }
+t_eq($err3, 'bad_request', 'raid_id가 없으면 bad_request다');
+
+$call(['action' => 'raid.delete', 'raid_id' => $apiRid]);
+$call(['action' => 'player.delete', 'player_id' => $apiPid]);
+t_eq((int)$pdo->query("SELECT COUNT(*) FROM fc_raids WHERE id = $apiRid")->fetchColumn(), 0,
+     'raid.delete가 레이드를 지운다');
 
 fc_cleanup_test_data($pdo);
 
