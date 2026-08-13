@@ -272,6 +272,77 @@ function fc_swap_slots(PDO $pdo, $slotIdA, $slotIdB) {
     fc_bump_revision($pdo);
 }
 
+// 순수 함수 — DB를 모른다. 같은 레이드 안에서 같은 캐릭터가 두 번 이상 배치된 경우를 찾는다.
+// 같은 포스 안의 중복도 잡는다.
+function fc_duplicates(array $forces, array $slots) {
+    $raidOfForce = [];
+    foreach ($forces as $f) { $raidOfForce[(int)$f['id']] = (int)$f['raid_id']; }
+
+    $seen = [];   // raid_id => character_id => [force_id, ...]
+    foreach ($slots as $s) {
+        if ($s['character_id'] === null) continue;
+        $fid = (int)$s['force_id'];
+        if (!isset($raidOfForce[$fid])) continue;
+        $rid = $raidOfForce[$fid];
+        $cid = (int)$s['character_id'];
+        if (!isset($seen[$rid])) $seen[$rid] = [];
+        if (!isset($seen[$rid][$cid])) $seen[$rid][$cid] = [];
+        $seen[$rid][$cid][] = $fid;
+    }
+
+    $out = [];
+    foreach ($seen as $rid => $byChar) {
+        foreach ($byChar as $cid => $forceIds) {
+            if (count($forceIds) < 2) continue;
+            if (!isset($out[(string)$rid])) $out[(string)$rid] = [];
+            $out[(string)$rid][] = [
+                'character_id' => (int)$cid,
+                'force_ids'    => array_values(array_unique(array_map('intval', $forceIds))),
+            ];
+        }
+    }
+    return $out;
+}
+
+function fc_state(PDO $pdo) {
+    $players = $pdo->query("SELECT id, sort_order FROM fc_players ORDER BY sort_order, id")->fetchAll();
+
+    $characters = $pdo->query(
+        "SELECT id, player_id, char_name AS name, char_class AS class,
+                atul_score AS atul, item_level, is_main, is_placeholder, sort_order
+         FROM fc_characters ORDER BY player_id, sort_order, id")->fetchAll();
+
+    $raids  = $pdo->query("SELECT id, name, memo, sort_order FROM fc_raids ORDER BY sort_order, id")->fetchAll();
+    $forces = $pdo->query("SELECT id, raid_id, force_no, day_of_week, start_time, memo, sort_order
+                           FROM fc_forces ORDER BY raid_id, force_no, id")->fetchAll();
+    $slots  = $pdo->query("SELECT id, force_id, party_no, slot_no, character_id
+                           FROM fc_slots ORDER BY force_id, party_no, slot_no")->fetchAll();
+
+    // 숫자 컬럼을 JSON에서 정수로 나가게 정리한다 (PDO는 문자열로 준다)
+    $toInt = function (&$rows, array $intCols, array $nullableIntCols = []) {
+        foreach ($rows as &$r) {
+            foreach ($intCols as $c) { $r[$c] = (int)$r[$c]; }
+            foreach ($nullableIntCols as $c) { $r[$c] = $r[$c] === null ? null : (int)$r[$c]; }
+        }
+        unset($r);
+    };
+    $toInt($players, ['id', 'sort_order']);
+    $toInt($characters, ['id', 'player_id', 'is_main', 'is_placeholder', 'sort_order'], ['atul', 'item_level']);
+    $toInt($raids, ['id', 'sort_order']);
+    $toInt($forces, ['id', 'raid_id', 'force_no', 'sort_order']);
+    $toInt($slots, ['id', 'force_id', 'party_no', 'slot_no'], ['character_id']);
+
+    return [
+        'revision'   => fc_revision($pdo),
+        'players'    => $players,
+        'characters' => $characters,
+        'raids'      => $raids,
+        'forces'     => $forces,
+        'slots'      => $slots,
+        'duplicates' => fc_duplicates($forces, $slots),
+    ];
+}
+
 // 테스트 전용: zzTest_ 접두사가 붙은 것만 지운다. 실제 데이터는 건드리지 않는다.
 function fc_cleanup_test_data(PDO $pdo) {
     $pids = $pdo->query("SELECT DISTINCT player_id FROM fc_characters WHERE char_name LIKE 'zzTest\\_%'")
