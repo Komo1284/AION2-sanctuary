@@ -39,50 +39,74 @@ Server: `14.63.164.109:54122` (root), SSH alias `aion-sanctuary`, repo `https://
 
 ## Architecture
 
-**Single-file routing via `index.php`**: All HTTP requests go through `index.php`, which handles session management, DB connection, POST action dispatch, and view rendering.
+**단일 페이지 편성 도구**. `index.php`가 비밀번호 게이트와 셸 HTML을 내려주고, 초기 state
+스냅샷을 `window.FC_STATE`로 심는다. 이후 모든 조작은 `force/api.php` JSON API로 오간다.
+프론트엔드에는 빌드 단계가 없다 — 브라우저가 `assets/app.js`를 그대로 읽는다. **PC 전용**이며
+모바일 편성은 지원하지 않는다.
 
-**Pattern — POST action handlers** (`actions/`): Each major POST action is dispatched via `require_once` in `index.php`. These files run in the same scope and can read/write `$pdo`, `$message`, `$message_type`, and `$current_season`.
+- `force/db.php` — PDO 커넥션
+- `force/schema.php` — `fc_*` 테이블 멱등 생성
+- `force/store.php` — DB 조작 전담 (HTTP/HTML 모름)
+- `force/atul.php` — aion2.plaync.com 조회 (DB 모름)
+- `force/api.php` — JSON 경계. `fc_api_dispatch()`가 순수 디스패처. 액션: `state`,
+  `player.create/delete`, `character.add/update/promote/delete`, `raid.create/update/delete`,
+  `force.create/update/delete`, `slot.assign/swap`, `atul.refresh`
+- `force/test_api.php` — 서버에서 `php force/test_api.php`로 실행하는 스모크 테스트 (110개+)
+- `assets/app.js` — 렌더 · 팝오버 · 드래그앤드롭 · 10초 폴링
+- `assets/app.css` — 디자인 토큰과 스타일
 
-- `actions/apply_force.php` — validates and inserts a new force application (신청)
-- `actions/compose_parties.php` — runs the party composition algorithm
+구 `sections/`, `actions/`, `cron/`, `migrate_add_19.php`는 삭제됐다.
 
-**Pattern — view partials** (`sections/`): Included at the bottom of `index.php` based on `$tab` and `$nav` GET params. They share the same scope (access `$pdo`, `$current_season_id`, `$is_admin`, etc.).
+### 서버 PHP 7.4.3 제약
 
-- `sections/apply.php` — force registration form
-- `sections/admin.php` — admin panel (applicant list + force results)
-- Additional sections for notices (referenced but not present in repo): `sections/forces.php`, `sections/notices_list.php`, `sections/notices_detail.php`, `sections/notices_write.php`
+`match`, `str_contains`, `str_starts_with`, nullsafe(`?->`), 생성자 프로퍼티 승격을 쓸 수 없다.
+이 문법을 쓰면 로컬에서는 안 걸리고(로컬에 PHP 자체가 없다) 서버 `php -l`에서만 걸린다.
+
+### 함정: `hidden` 속성과 CSS 특정성
+
+`.fc-modal{display:flex}` 같은 규칙은 브라우저 기본 `[hidden]{display:none}`을 특정성에서
+이겨버린다. 그러면 닫힌 모달이 `hidden` 속성은 붙어 있는데도 화면에 남아 전체 화면 클릭
+차단 레이어가 되는 버그가 실제로 발생했다. `index.php`에 `hidden`으로 여닫는 요소를 추가할
+때는 반드시 `.클래스[hidden]{display:none}`을 CSS에 함께 넣는다.
+
+### `FC.busy` 규약
+
+드래그 중이거나 팝오버/모달이 열려 있으면 10초 폴링이 화면을 다시 그리지 않는다. 이 판단은
+`FC.recomputeBusy()` **한 곳**에서만 한다 — 조건을 여러 곳에 흩어놓으면 폴링이 화면을
+갈아엎어 드래그 중 카드가 사라지는 버그가 재발한다(실제로 두 번 재발했다).
 
 ## Key Domain Concepts
 
-- **포스 (Force)**: A unit of 8 players split into two parties of 4
-- **본캐 / 부캐**: Main character / alt character; only main chars are guaranteed a slot
-- **깐부**: Buddy system — players who request to be in the same force
-- **아툴 점수**: Combat score fetched from external API `https://aion2tool.com/api/character/search`
-- **직업 (Classes)**: 수호성, 검성, 살성, 궁성, 호법성, 정령성, 마도성, 치유성
+- **레이드**: 탭으로 구분되는 편성 단위 (루드라, 침식 등)
+- **포스**: 고정 2파티 × 5슬롯 = 10명
+- **본캐 / 부캐**: 한 사람(`fc_players`)이 여러 캐릭터(`fc_characters`)를 가진다.
+  대기창에는 `is_main = 1`만 노출되고, 클릭하면 팝오버에 전부 나온다
+- **임시 캐릭터 (`is_placeholder`)**: 어떤 부캐를 보낼지 아직 안 정했을 때 쓰는 자리표시 카드
+  (예: "코모부캐1"). 아툴 조회를 건너뛰고 직업·점수가 빈 채로 저장되며, 화면에서 회색 점선
+  슬롯으로 그려진다. 명단 관리의 「확정」 버튼(`character.promote`)으로 실제 캐릭명을 넣으면
+  이름 변경 + 아툴 조회가 한 번에 일어나고, 슬롯은 `character_id`를 그대로 가리키므로
+  **배치된 자리가 유지된다**.
+- **캐릭명 유일성**: 실제 캐릭명은 전역에서 유일해야 하지만, 임시명은 같은 플레이어 안에서만
+  유일하면 된다 — 조건부 규칙이라 MySQL 부분 유니크 인덱스로 표현할 수 없어 `char_name`에는
+  UNIQUE 인덱스가 없다. 검사는 `fc_insert_character()`/`fc_name_exists()` 한 곳에서만 한다.
+- **중복**: 레이드가 다르면 같은 캐릭터를 여러 번 넣는 것이 정상이다.
+  같은 레이드 안 중복만 경고한다 (차단하지 않음)
+- **아툴 점수**: `https://aion2.plaync.com` 2단계 조회로 직업·전투력·아이템레벨을 자동 수집
 
-## Party Composition Algorithm (`actions/compose_parties.php`)
+## Database Schema
 
-Runs when admin clicks "파티 구성 시작". Logic:
+- `fc_players` — id, sort_order, created_at
+- `fc_characters` — id, player_id, char_name (UNIQUE 인덱스 없음 — 위 참고), char_class,
+  atul_score, item_level, is_main, is_placeholder, sort_order, atul_updated_at
+- `fc_raids` — id, name, memo, sort_order, created_at
+- `fc_forces` — id, raid_id, force_no, day_of_week, start_time, memo, sort_order
+- `fc_slots` — id, force_id, party_no(1|2), slot_no(1~5), character_id(NULL 가능),
+  UNIQUE(force_id, party_no, slot_no)
+- `fc_meta` — k, v (revision 카운터)
 
-1. Delete existing forces/parties for the season
-2. Fetch all characters ordered by atul score DESC
-3. If total characters % 8 ≠ 0, exclude alt chars with lowest scores
-4. Assign 깐부 groups to forces first (greedy, finds force with enough space)
-5. Assign remaining chars via snake draft (always pick force with lowest average atul)
-6. Within each force, assign to the party with lower average to balance the two parties
-7. Apply 치유성 penalty: if a party has ≥2 healers, the highest-score healer's score × 2/3 for display only (`atul_adjusted`)
-8. Sort forces by avg atul DESC for force numbering
-
-## Database Schema (inferred)
-
-- `sanctuary_seasons` — id, name, status (구성중|모집종료), start_date. 신청은 상태와 무관하게 상시 가능. 레거시 '모집중' 값은 앱 시작 시 '구성중'으로 자동 마이그레이션됨 (`index.php`).
-- `sanctuary_applications` — id, season_id, applicant_ip, status, applied_at
-- `sanctuary_characters` — id, application_id, char_name, char_class, atul_score, is_main, atul_adjusted
-- `sanctuary_buddies` — id, application_id, buddy_name, buddy_score, buddy_class, is_main, buddy_group
-- `sanctuary_forces` — id, season_id, force_number, avg_atul
-- `sanctuary_parties` — id, force_id, party_number, avg_atul
-- `sanctuary_party_members` — id, party_id, character_id
+구버전 `sanctuary_*` 테이블은 더 이상 쓰지 않는다. DROP하지 않고 그대로 방치한다.
 
 ## Admin Access
 
-Session-based via `$_SESSION['sanctuary_admin']`. Login via password modal in the header. Logout via `?admin_logout=1` GET param.
+관리자 구분이 없다. 사이트 비밀번호(`sanctuary_config.json`의 `site_password`)를 아는 사람은
+누구나 편집할 수 있다.
