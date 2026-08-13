@@ -249,6 +249,81 @@ FC.render = function () {
   FC.renderBoard();
 };
 
+FC.busy = false;
+
+FC.toast = function (message, kind) {
+  var wrap = document.getElementById('fc-toast');
+  var node = FC.el('div', { class: 'fc-toast is-' + (kind || 'ok'), text: message });
+  wrap.appendChild(node);
+  setTimeout(function () {
+    node.classList.add('is-out');
+    setTimeout(function () { if (node.parentNode) node.parentNode.removeChild(node); }, 250);
+  }, 3000);
+};
+
+FC.setConnected = function (ok) {
+  document.getElementById('fc-conn').hidden = !!ok;
+};
+
+FC.api = function (action, payload) {
+  var body = Object.assign({ action: action }, payload || {});
+  return fetch('force/api.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(function (res) {
+    return res.json().catch(function () { throw new Error('bad_response'); });
+  }).then(function (json) {
+    FC.setConnected(true);
+    if (!json.ok) throw new Error(json.error || 'unknown_error');
+    if (typeof json.revision === 'number') FC.state.revision = json.revision;
+    return json.data;
+  }).catch(function (err) {
+    if (err.message === 'bad_response' || err instanceof TypeError) FC.setConnected(false);
+    throw err;
+  });
+};
+
+FC.refresh = function () {
+  return FC.api('state', {}).then(function (state) {
+    FC.state = state;
+    FC.render();
+  });
+};
+
+var ERROR_TEXT = {
+  'bad_request': '입력값이 올바르지 않아요',
+  'unauthorized': '세션이 만료됐어요. 새로고침 후 다시 로그인하세요',
+  'not_found': '대상을 찾을 수 없어요',
+  'lookup_failed': '아툴 조회에 실패했어요',
+  'slot_not_found': '슬롯을 찾을 수 없어요',
+  'empty_name': '이름을 입력하세요',
+  'unknown_action': '알 수 없는 요청이에요'
+};
+
+FC.errorText = function (err) {
+  var msg = err && err.message ? err.message : '';
+  if (msg.indexOf('duplicate_name') === 0) {
+    var who = msg.split(':')[1] || '';
+    return '이미 등록된 캐릭명이에요' + (who ? ' — ' + who : '');
+  }
+  return ERROR_TEXT[msg] || ('저장 실패: ' + (msg || '알 수 없는 오류'));
+};
+
+// 10초마다 revision만 확인한다. 드래그 중이거나 팝오버/모달이 열려 있으면 건너뛴다 —
+// 손에 든 카드가 사라지면 안 된다.
+FC.startPolling = function () {
+  setInterval(function () {
+    if (FC.busy) return;
+    FC.api('state', {}).then(function (state) {
+      if (Number(state.revision) === Number(FC.state.revision) &&
+          (FC.state.slots || []).length === (state.slots || []).length) return;
+      FC.state = state;
+      FC.render();
+    }).catch(function () { /* 배너는 FC.api가 이미 띄웠다 */ });
+  }, 10000);
+};
+
 (function boot() {
   var raids = FC.state.raids || [];
   FC.activeRaidId = raids.length ? raids[0].id : null;
@@ -261,4 +336,5 @@ FC.render = function () {
     slots: (FC.state.slots || []).length
   });
   FC.render();
+  FC.startPolling();
 })();
