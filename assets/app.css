@@ -111,3 +111,17 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .fc-manage-meta{color:var(--dim);font-size:11px;margin-left:auto;}
 .fc-manage-add{display:flex;gap:6px;margin-top:8px;}
 .fc-manage-add .fc-input{flex:1 1 auto;}
+
+.fc-popover{position:absolute;z-index:70;background:var(--panel);border:1px solid var(--gold-2);
+  border-radius:12px;padding:10px;width:250px;box-shadow:0 16px 44px rgba(0,0,0,0.55);}
+.fc-pop-title{font-size:11px;color:var(--dim);margin-bottom:8px;letter-spacing:.5px;}
+.fc-pop-row{display:flex;align-items:center;gap:7px;padding:7px 8px;border-radius:8px;
+  border:1px solid var(--line);background:var(--panel-2);margin-bottom:5px;cursor:grab;}
+.fc-pop-row:hover{border-color:var(--slot-color);}
+.fc-pop-row:active{cursor:grabbing;}
+.fc-pop-row.is-placed{opacity:.45;}
+.fc-pop-row.is-placeholder{border-style:dashed;border-color:var(--line-2);color:var(--muted);}
+.fc-pop-add-ph{margin-top:6px;font-size:12px;color:var(--dim);}
+.fc-pop-name{font-size:13px;font-weight:700;}
+.fc-pop-meta{font-size:10px;color:var(--dim);margin-left:auto;}
+.fc-pop-tag{font-size:10px;color:var(--gold);border:1px solid var(--gold-2);border-radius:6px;padding:1px 5px;}

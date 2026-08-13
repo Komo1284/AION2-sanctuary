@@ -566,6 +566,46 @@ FC.bindGlobalEvents = function () {
   document.addEventListener('click', function (e) {
     var t = e.target;
 
+    var card = t.closest ? t.closest('.fc-roster-card') : null;
+    if (card) {
+      if (card.classList.contains('is-open')) { FC.closePopover(); }
+      else { FC.closePopover(); FC.openPopover(Number(card.getAttribute('data-player-id')), card); }
+      return;
+    }
+
+    if (t.classList.contains('fc-slot-x')) {
+      var xSlotId = Number(t.getAttribute('data-slot-id'));
+      FC.api('slot.assign', { slot_id: xSlotId, character_id: null })
+        .then(function () { return FC.refresh(); })
+        .catch(function (err) { FC.toast(FC.errorText(err), 'err'); });
+      return;
+    }
+
+    if (t.classList.contains('fc-pop-add-ph')) {
+      var phPid = Number(t.getAttribute('data-player-id'));
+      var phMain = FC.mainOf(phPid);
+      var existing = FC.charsOfPlayer(phPid).filter(function (c) {
+        return Number(c.is_placeholder) === 1;
+      }).length;
+      var suggested = (phMain ? phMain.name : '') + '부캐' + (existing + 1);
+      var typed = prompt('임시 캐릭 이름', suggested);
+      if (typed === null) return;
+      typed = typed.trim();
+      if (!typed) { FC.toast('이름을 입력하세요', 'err'); return; }
+
+      FC.api('character.add', { player_id: phPid, name: typed, is_placeholder: true })
+        .then(function () { return FC.refresh(); })
+        .then(function () {
+          FC.toast(typed + ' 추가 완료', 'ok');
+          var again = document.querySelector('.fc-roster-card[data-player-id="' + phPid + '"]');
+          if (again) FC.openPopover(phPid, again);
+        })
+        .catch(function (err) { FC.toast(FC.errorText(err), 'err'); });
+      return;
+    }
+
+    if (!t.closest || !t.closest('#fc-popover')) FC.closePopover();
+
     if (t.id === 'fc-open-roster') { FC.openRoster(); return; }
     if (t.id === 'fc-add-player')  { FC.openAddPlayer(); return; }
 
@@ -727,7 +767,170 @@ FC.bindGlobalEvents = function () {
   });
 
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') FC.closeModal();
+    if (e.key === 'Escape') { FC.closeModal(); FC.closePopover(); }
+  });
+};
+
+FC.drag = null;
+
+FC.closePopover = function () {
+  var pop = document.getElementById('fc-popover');
+  pop.hidden = true;
+  pop.innerHTML = '';
+  var opened = document.querySelector('.fc-roster-card.is-open');
+  if (opened) opened.classList.remove('is-open');
+  if (!FC.drag) FC.busy = false;
+};
+
+FC.openPopover = function (playerId, anchorEl) {
+  var pop = document.getElementById('fc-popover');
+  pop.innerHTML = '';
+
+  var main = FC.mainOf(playerId);
+  var chars = FC.charsOfPlayer(playerId);
+
+  // 이 레이드에서 이 캐릭터가 배치된 포스 번호들
+  var placedByChar = {};
+  var forcesOfRaid = (FC.state.forces || []).filter(function (f) {
+    return Number(f.raid_id) === Number(FC.activeRaidId);
+  });
+  forcesOfRaid.forEach(function (f) {
+    (FC.state.slots || []).forEach(function (s) {
+      if (Number(s.force_id) !== Number(f.id) || s.character_id === null) return;
+      var key = String(s.character_id);
+      if (!placedByChar[key]) placedByChar[key] = [];
+      if (placedByChar[key].indexOf(f.force_no) === -1) placedByChar[key].push(f.force_no);
+    });
+  });
+
+  pop.appendChild(FC.el('div', { class: 'fc-pop-title', text: (main ? main.name : '') + ' 의 캐릭터' }));
+
+  chars.forEach(function (c) {
+    var placed = placedByChar[String(c.id)] || [];
+    var isPh = Number(c.is_placeholder) === 1;
+    var row = FC.el('div', {
+      class: 'fc-pop-row' + (placed.length ? ' is-placed' : '') + (isPh ? ' is-placeholder' : ''),
+      draggable: 'true', 'data-character-id': c.id,
+      style: '--slot-color:' + FC.classColor(c.class)
+    }, [
+      FC.el('span', { class: 'fc-dot', style: 'background:' + (isPh ? '#4a5a78' : FC.classColor(c.class)) }),
+      FC.el('span', { class: 'fc-pop-name', text: (Number(c.is_main) === 1 ? '⭐ ' : '') + c.name }),
+      FC.el('span', { class: 'fc-pop-meta',
+        text: isPh ? '미정' : ((c.class || '직업?') + ' · ' + (c.atul ? c.atul.toLocaleString() : '—')) })
+    ]);
+    if (placed.length) {
+      row.appendChild(FC.el('span', { class: 'fc-pop-tag', text: placed.join(',') + '포스' }));
+    }
+    pop.appendChild(row);
+  });
+
+  // 어떤 부캐를 보낼지 아직 안 정했을 때 쓰는 자리표시 카드
+  pop.appendChild(FC.el('button', {
+    class: 'fc-btn fc-block fc-pop-add-ph', type: 'button',
+    'data-player-id': playerId, text: '+ 임시 캐릭 추가'
+  }));
+
+  if (!FC.activeRaidId) {
+    pop.appendChild(FC.el('p', { class: 'fc-hint', text: '레이드를 먼저 선택하세요.' }));
+  }
+
+  pop.hidden = false;
+  var rect = anchorEl.getBoundingClientRect();
+  var top = Math.min(rect.top + window.scrollY, window.scrollY + window.innerHeight - pop.offsetHeight - 16);
+  pop.style.top = Math.max(window.scrollY + 8, top) + 'px';
+  pop.style.left = (rect.right + 10) + 'px';
+
+  anchorEl.classList.add('is-open');
+  FC.busy = true;
+};
+
+// 낙관적 UI: 화면을 먼저 바꾸고 뒤에서 저장한다. 실패하면 되돌린다.
+FC.dropOnSlot = function (slotId) {
+  var drag = FC.drag;
+  if (!drag) return;
+
+  var slot = null;
+  (FC.state.slots || []).forEach(function (s) { if (Number(s.id) === Number(slotId)) slot = s; });
+  if (!slot) return;
+
+  var snapshot = (FC.state.slots || []).map(function (s) {
+    return { id: s.id, character_id: s.character_id };
+  });
+  var rollback = function () {
+    var byId = {};
+    snapshot.forEach(function (s) { byId[String(s.id)] = s.character_id; });
+    (FC.state.slots || []).forEach(function (s) { s.character_id = byId[String(s.id)]; });
+    FC.render();
+  };
+
+  var call;
+  if (drag.type === 'slot') {
+    if (Number(drag.fromSlotId) === Number(slotId)) return;
+    var from = null;
+    (FC.state.slots || []).forEach(function (s) { if (Number(s.id) === Number(drag.fromSlotId)) from = s; });
+    if (!from) return;
+    var tmp = slot.character_id;
+    slot.character_id = from.character_id;
+    from.character_id = tmp;
+    call = FC.api('slot.swap', { slot_id_a: drag.fromSlotId, slot_id_b: slotId });
+  } else {
+    slot.character_id = drag.characterId;
+    call = FC.api('slot.assign', { slot_id: slotId, character_id: drag.characterId });
+  }
+
+  FC.render();
+  call.then(function () { return FC.refresh(); })
+      .catch(function (err) { rollback(); FC.toast(FC.errorText(err), 'err'); });
+};
+
+FC.bindDragEvents = function () {
+  document.addEventListener('dragstart', function (e) {
+    var row = e.target.closest ? e.target.closest('.fc-pop-row') : null;
+    var slot = e.target.closest ? e.target.closest('.fc-slot.is-filled') : null;
+
+    if (row) {
+      if (!FC.activeRaidId) { e.preventDefault(); FC.toast('레이드를 먼저 선택하세요', 'err'); return; }
+      FC.drag = { type: 'character', characterId: Number(row.getAttribute('data-character-id')), fromSlotId: null };
+    } else if (slot) {
+      FC.drag = {
+        type: 'slot',
+        characterId: Number(slot.getAttribute('data-character-id')),
+        fromSlotId: Number(slot.getAttribute('data-slot-id'))
+      };
+    } else {
+      return;
+    }
+    FC.busy = true;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(FC.drag.characterId));
+  });
+
+  document.addEventListener('dragover', function (e) {
+    var slot = e.target.closest ? e.target.closest('.fc-slot') : null;
+    if (!slot || !FC.drag) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    slot.classList.add('is-drop-target');
+  });
+
+  document.addEventListener('dragleave', function (e) {
+    var slot = e.target.closest ? e.target.closest('.fc-slot') : null;
+    if (slot) slot.classList.remove('is-drop-target');
+  });
+
+  document.addEventListener('drop', function (e) {
+    var slot = e.target.closest ? e.target.closest('.fc-slot') : null;
+    if (!slot || !FC.drag) return;
+    e.preventDefault();
+    slot.classList.remove('is-drop-target');
+    FC.dropOnSlot(Number(slot.getAttribute('data-slot-id')));
+  });
+
+  document.addEventListener('dragend', function () {
+    FC.drag = null;
+    FC.busy = !document.getElementById('fc-popover').hidden || !document.getElementById('fc-modal').hidden;
+    Array.prototype.slice.call(document.querySelectorAll('.is-drop-target'))
+      .forEach(function (n) { n.classList.remove('is-drop-target'); });
   });
 };
 
@@ -745,4 +948,5 @@ FC.bindGlobalEvents = function () {
   FC.render();
   FC.startPolling();
   FC.bindGlobalEvents();
+  FC.bindDragEvents();
 })();
