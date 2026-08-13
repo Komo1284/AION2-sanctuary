@@ -135,10 +135,34 @@ function fc_update_character(PDO $pdo, $id, array $fields) {
     fc_bump_revision($pdo);
 }
 
+// 본캐를 지우면 남은 캐릭터 중 sort_order가 가장 작은 것이 본캐를 승계한다.
+// 승계자가 없으면(마지막 캐릭터였으면) 고아 fc_players 행도 함께 지운다.
+// 이걸 빼먹으면 그 플레이어의 남은 부캐가 FC.mainOf()에서 찾아지지 않아
+// 대기창/명단 관리 어디에도 나타나지 않는 유령이 된다 (app.js의 `if (!main) return;`).
 function fc_delete_character(PDO $pdo, $id) {
+    $cur = $pdo->prepare("SELECT player_id, is_main FROM fc_characters WHERE id = ?");
+    $cur->execute([$id]);
+    $row = $cur->fetch();
+    if (!$row) return;
+    $playerId = (int)$row['player_id'];
+    $wasMain  = (int)$row['is_main'] === 1;
+
     // 배치된 슬롯은 비우되 슬롯 행 자체는 남긴다 (포스의 칸 구조는 유지)
     $pdo->prepare("UPDATE fc_slots SET character_id = NULL WHERE character_id = ?")->execute([$id]);
     $pdo->prepare("DELETE FROM fc_characters WHERE id = ?")->execute([$id]);
+
+    if ($wasMain) {
+        $next = $pdo->prepare("SELECT id FROM fc_characters WHERE player_id = ?
+                               ORDER BY sort_order, id LIMIT 1");
+        $next->execute([$playerId]);
+        $nextId = $next->fetchColumn();
+        if ($nextId !== false) {
+            $pdo->prepare("UPDATE fc_characters SET is_main = 1 WHERE id = ?")->execute([(int)$nextId]);
+        } else {
+            $pdo->prepare("DELETE FROM fc_players WHERE id = ?")->execute([$playerId]);
+        }
+    }
+
     fc_bump_revision($pdo);
 }
 

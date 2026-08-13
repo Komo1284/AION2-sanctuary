@@ -4,10 +4,14 @@ date_default_timezone_set('Asia/Seoul');
 
 $_config_file = __DIR__ . '/sanctuary_config.json';
 $_config      = file_exists($_config_file) ? (json_decode(file_get_contents($_config_file), true) ?? []) : [];
-$site_pw      = $_config['site_password'] ?? 'forest0305';
+// 하드코딩된 기본 비밀번호로 폴백하지 않는다 — sanctuary_config.json이 커밋 없이도
+// 존재하기만 하면 안전했지만, 그 파일이 사라지면 git에 공개된 비밀번호로 조용히
+// 열려버린다. 설정 파일에 site_password가 없으면 아예 입장을 거부한다.
+$site_pw      = isset($_config['site_password']) ? $_config['site_password'] : null;
 
 if (!isset($_SESSION['sanctuary_site_auth'])) {
-    if (isset($_POST['site_password'])) {
+    $site_config_missing = ($site_pw === null);
+    if (!$site_config_missing && isset($_POST['site_password'])) {
         if (strtolower($_POST['site_password']) === strtolower($site_pw)) {
             $_SESSION['sanctuary_site_auth'] = true;
             header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?'));
@@ -41,6 +45,9 @@ background-image:radial-gradient(ellipse at 30% 50%,rgba(58,123,213,0.06) 0%,tra
 <div class="gate">
   <div class="gate-legion">숲</div>
   <div class="gate-title">AION 2 LEGION · 포스 편성</div>
+  <?php if ($site_config_missing): ?>
+  <div class="gate-error">⚠ 설정 파일이 없습니다. 관리자에게 문의하세요.</div>
+  <?php else: ?>
   <form method="POST">
     <label class="gate-label">접속 비밀번호</label>
     <input type="password" name="site_password" class="gate-input" placeholder="비밀번호를 입력하세요" autofocus>
@@ -49,6 +56,7 @@ background-image:radial-gradient(ellipse at 30% 50%,rgba(58,123,213,0.06) 0%,tra
     <div class="gate-error">❌ 비밀번호가 올바르지 않습니다.</div>
     <?php endif; ?>
   </form>
+  <?php endif; ?>
 </div>
 </body>
 </html><?php

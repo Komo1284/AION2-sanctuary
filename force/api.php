@@ -8,6 +8,10 @@ require_once __DIR__ . '/atul.php';
 
 function fc_req_int(array $req, $key) {
     if (!isset($req[$key])) return 0;
+    // 배열/객체를 (int)로 캐스팅하면 PHP가 조용히 1(비어있지 않음) 또는 0으로 뭉갠다.
+    // 예: force.delete에 force_id:[99999]를 보내면 (int)[99999] === 1이 되어 엉뚱한
+    // 1번 포스가 삭제된다. fc_req_str과 대칭으로 여기서도 명시적으로 막는다.
+    if (is_array($req[$key]) || is_object($req[$key])) throw new RuntimeException('bad_request');
     return (int)$req[$key];
 }
 
@@ -177,6 +181,17 @@ if (isset($_SERVER['REQUEST_METHOD']) && basename($_SERVER['SCRIPT_FILENAME']) =
         exit;
     }
 
+    // Content-Type이 application/json이 아니면 거부한다. text/plain으로 보내는 요청은
+    // <form enctype="text/plain">으로 브라우저가 프리플라이트 없이 실어 나를 수 있어
+    // (로그인된 운영자가 공격자 페이지를 열면 raid.delete/player.delete가 실행되는) CSRF에
+    // 노출된다. PHP 7.4라 str_starts_with 대신 strpos를 쓴다.
+    $contentType = isset($_SERVER['CONTENT_TYPE']) ? $_SERVER['CONTENT_TYPE'] : '';
+    if (strpos($contentType, 'application/json') !== 0) {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'error' => 'bad_content_type'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     $raw = file_get_contents('php://input');
     $req = json_decode($raw, true);
     if (!is_array($req)) {
@@ -191,6 +206,13 @@ if (isset($_SERVER['REQUEST_METHOD']) && basename($_SERVER['SCRIPT_FILENAME']) =
         $data = fc_api_dispatch($pdo, $req, 'fc_atul_lookup');
         echo json_encode(['ok' => true, 'data' => $data, 'revision' => fc_revision($pdo)],
                          JSON_UNESCAPED_UNICODE);
+    } catch (PDOException $e) {
+        // PDOException은 RuntimeException을 상속하므로 아래 catch(RuntimeException)보다
+        // 먼저 잡아야 한다. 안 그러면 DB 장애가 400 + 드라이버 원문(SQLSTATE 등)으로
+        // 그대로 노출되고, JSON 파싱은 성공하니 FC.setConnected(true)가 불려 연결 끊김
+        // 배너도 안 뜬다.
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'error' => 'server_error'], JSON_UNESCAPED_UNICODE);
     } catch (RuntimeException $e) {
         http_response_code(400);
         echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);

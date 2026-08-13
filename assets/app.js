@@ -22,7 +22,6 @@ FC.el = function (tag, attrs, children) {
   Object.keys(attrs).forEach(function (k) {
     if (k === 'class') node.className = attrs[k];
     else if (k === 'text') node.textContent = attrs[k];
-    else if (k === 'html') node.innerHTML = attrs[k];
     else if (attrs[k] !== null && attrs[k] !== undefined) node.setAttribute(k, attrs[k]);
   });
   (children || []).forEach(function (c) { if (c) node.appendChild(c); });
@@ -66,25 +65,45 @@ FC.dupCharIds = function (raidId) {
 };
 
 // ── 사이드바 ────────────────────────────────────────────────
+// #fc-search 인풋은 뼈대를 처음 만들 때 딱 한 번만 생성하고 이후로는 재사용한다.
+// input 이벤트마다(한글 조합 중에도) 이 함수가 사이드바를 통째로 다시 그리면,
+// 조합 중인 엘리먼트가 DOM에서 빠지는 순간 브라우저가 IME composition을 강제
+// 종료시켜 "ㅎㅗㅇ"이 "홍"으로 합쳐지지 않는다. 폴링/새로고침으로 FC.render()가
+// 사이드바를 다시 그릴 때도 같은 이유로 노드를 유지해야 하므로, 목록(.fc-roster)만
+// 별도 함수(FC.renderRoster)로 갈아 끼운다.
 FC.renderSidebar = function () {
   var host = document.getElementById('fc-sidebar');
-  host.innerHTML = '';
-  host.appendChild(FC.el('div', { class: 'fc-side-title', text: '캐릭터 대기창' }));
+  var search = document.getElementById('fc-search');
 
-  var search = FC.el('input', {
-    class: 'fc-search', id: 'fc-search', type: 'text',
-    placeholder: '이름 검색', value: FC.searchTerm || ''
-  });
-  search.addEventListener('input', function () {
-    FC.searchTerm = search.value;
-    FC.renderSidebar();
-    var again = document.getElementById('fc-search');
-    again.focus();
-    again.setSelectionRange(again.value.length, again.value.length);
-  });
-  host.appendChild(search);
+  if (!search) {
+    host.innerHTML = '';
+    host.appendChild(FC.el('div', { class: 'fc-side-title', text: '캐릭터 대기창' }));
 
-  var list = FC.el('div', { class: 'fc-roster' });
+    search = FC.el('input', {
+      class: 'fc-search', id: 'fc-search', type: 'text',
+      placeholder: '이름 검색', value: FC.searchTerm || ''
+    });
+    search.addEventListener('input', function () {
+      FC.searchTerm = search.value;
+      FC.renderRoster();
+    });
+    host.appendChild(search);
+    host.appendChild(FC.el('div', { class: 'fc-roster' }));
+    host.appendChild(FC.el('button', { class: 'fc-btn fc-block', id: 'fc-add-player', text: '+ 인원 추가' }));
+  } else if (document.activeElement !== search && search.value !== (FC.searchTerm || '')) {
+    // 코드에서 검색어를 바꾼 경우(예: 나중에 "검색 지우기" 기능이 생기면)에만 동기화한다.
+    // 사용자가 지금 이 인풋에 포커스를 두고 타이핑 중이면 절대 값을 건드리지 않는다.
+    search.value = FC.searchTerm || '';
+  }
+
+  FC.renderRoster();
+};
+
+FC.renderRoster = function () {
+  var list = document.querySelector('#fc-sidebar .fc-roster');
+  if (!list) return;
+  list.innerHTML = '';
+
   var term = (FC.searchTerm || '').trim().toLowerCase();
   var players = FC.state.players || [];
 
@@ -115,9 +134,6 @@ FC.renderSidebar = function () {
     ]);
     list.appendChild(card);
   });
-
-  host.appendChild(list);
-  host.appendChild(FC.el('button', { class: 'fc-btn fc-block', id: 'fc-add-player', text: '+ 인원 추가' }));
 };
 
 // ── 레이드 탭 ───────────────────────────────────────────────
@@ -298,6 +314,12 @@ FC.api = function (action, payload) {
 FC.refresh = function () {
   return FC.api('state', {}).then(function (state) {
     FC.state = state;
+    // render()는 #fc-board를 통째로 갈아엎는다. 드래그 중에 부르면 손에 든 슬롯
+    // 노드가 DOM에서 분리돼 dragend가 document까지 안 올라가고 FC.busy가 영구
+    // 고정된다. busy 전체가 아니라 FC.drag만 기준으로 삼는다 — 팝오버가 열려
+    // 있어서 busy=true인 상태로 드롭 직후 refresh가 호출되는 정상 경로까지
+    // 막으면 드롭 결과가 화면에 반영되지 않는다.
+    if (FC.drag) return;
     FC.render();
   });
 };
@@ -311,7 +333,9 @@ var ERROR_TEXT = {
   'empty_name': '이름을 입력하세요',
   'unknown_action': '알 수 없는 요청이에요',
   'bad_json': '요청 형식에 문제가 있어요. 새로고침 후 다시 시도하세요',
-  'server_error': '서버에 문제가 생겼어요. 잠시 후 다시 시도하세요'
+  'server_error': '서버에 문제가 생겼어요. 잠시 후 다시 시도하세요',
+  'bad_response': '서버 응답을 이해할 수 없어요. 잠시 후 다시 시도하세요',
+  'unknown_error': '알 수 없는 오류가 났어요. 잠시 후 다시 시도하세요'
 };
 
 FC.errorText = function (err) {
@@ -330,6 +354,10 @@ FC.startPolling = function () {
     if (FC.busy) return;
     var known = FC.state.revision; // FC.api가 응답 즉시 FC.state.revision을 갱신하므로 호출 전에 스냅샷 떠야 한다
     FC.api('state', {}).then(function (state) {
+      // 요청을 보낸 뒤(busy=false) 응답이 오기 전(~10초 폴링 간격 안) 사용자가
+      // 드래그를 시작했을 수 있다 — 응답 처리 시점에 다시 확인해야 render()가
+      // 드래그 중인 슬롯 DOM을 갈아엎지 않는다.
+      if (FC.busy) return;
       if (Number(state.revision) === Number(known) &&
           (FC.state.slots || []).length === (state.slots || []).length) return;
       FC.state = state;
@@ -366,7 +394,14 @@ FC.openModal = function (title, contentEl) {
   host.hidden = false;
   FC.recomputeBusy();
   document.getElementById('fc-modal-close').addEventListener('click', FC.closeModal);
-  host.addEventListener('click', function (e) { if (e.target === host) FC.closeModal(); });
+
+  // #fc-modal은 영속 엘리먼트라서, 열 때마다 매번 새 백드롭 클릭 리스너를 붙이면
+  // 쌓이기만 하고 제거되지 않는다(닫기 버튼은 innerHTML로 매번 새로 만들어지니 문제
+  // 없지만 host 자체는 그대로다). 한 번만 등록한다.
+  if (!FC._modalBackdropBound) {
+    host.addEventListener('click', function (e) { if (e.target === host) FC.closeModal(); });
+    FC._modalBackdropBound = true;
+  }
 };
 
 FC.openAddPlayer = function () {
@@ -443,8 +478,13 @@ FC.openRoster = function () {
         row.appendChild(FC.el('button', { class: 'fc-icon-btn fc-char-refresh',
           'data-character-id': c.id, type: 'button', text: '갱신' }));
       }
-      row.appendChild(FC.el('button', { class: 'fc-icon-btn fc-char-del',
-        'data-character-id': c.id, type: 'button', text: '삭제' }));
+      // 본캐 행에는 삭제 버튼을 두지 않는다 — 본캐를 지우면 그 사람 전체가 대기창/명단에서
+      // 사라지는 것처럼 보이는 조작을 애초에 노출하지 않는다. 본캐를 없애려면
+      // "이 사람 전체 삭제"를 쓰는 게 맞다.
+      if (Number(c.is_main) !== 1) {
+        row.appendChild(FC.el('button', { class: 'fc-icon-btn fc-char-del',
+          'data-character-id': c.id, type: 'button', text: '삭제' }));
+      }
       rows.appendChild(row);
     });
 
@@ -764,7 +804,11 @@ FC.bindGlobalEvents = function () {
           return FC.refresh().then(function () { return lookedUp; });
         })
         .then(function (lookedUp) {
-          FC.toast(lookedUp ? realName + ' 확정 완료' : realName + ' 확정 (조회 실패 — 직업은 직접 입력)', 'ok');
+          // character.update를 부르는 UI가 없어 직업/점수를 손으로 고칠 방법이 없다.
+          // 조회 실패를 안내할 땐 존재하지 않는 기능을 권하지 말고, 이름을 다시 확인해
+          // 재등록하라는 사실에 맞는 안내로 대체한다.
+          FC.toast(lookedUp ? realName + ' 확정 완료'
+                             : realName + ' 확정 (조회 실패 — 캐릭명을 확인 후 삭제하고 다시 등록해보세요)', 'ok');
           if (genPromote !== FC.modalGen) return;
           FC.closeModal();
           FC.openRoster();
@@ -908,6 +952,11 @@ FC.dropOnSlot = function (slotId) {
     var byId = {};
     snapshot.forEach(function (s) { byId[String(s.id)] = s.character_id; });
     (FC.state.slots || []).forEach(function (s) { s.character_id = byId[String(s.id)]; });
+    // 다음 폴링이 반드시 서버 상태를 다시 가져오도록 revision을 무효화한다. FC.api는
+    // slot.assign/swap이 성공하는 순간 이미 FC.state.revision을 서버의 새 값으로
+    // 갱신해두므로, 되돌리지 않으면 다음 폴링이 "변경 없음"으로 오판하고 그대로
+    // return해버려 화면이 새로고침 전까지 서버와 계속 어긋난다.
+    FC.state.revision = -1;
     FC.render();
     FC.reopenPopoverIfOpen();
     FC.recomputeBusy();
@@ -931,9 +980,24 @@ FC.dropOnSlot = function (slotId) {
   FC.render();
   FC.reopenPopoverIfOpen();
   FC.recomputeBusy();
-  call.then(function () { return FC.refresh(); })
-      .then(function () { FC.reopenPopoverIfOpen(); FC.recomputeBusy(); })
-      .catch(function (err) { rollback(); FC.toast(FC.errorText(err), 'err'); });
+  // call(slot.assign/slot.swap)의 실패와 뒤이은 FC.refresh()의 실패를 구분한다.
+  // call이 성공했으면 서버에는 이미 저장된 것이므로, 그 뒤 refresh(화면 갱신)만
+  // 실패했다고 해서 rollback으로 이미 맞는 낙관적 UI를 되돌리면 안 된다 — 저장된
+  // 변경을 화면에서만 지워버리는 꼴이 된다. 이 경우엔 revision만 무효화해서
+  // 다음 폴링이 서버 상태를 다시 끌어오게 한다.
+  call.then(function () {
+    return FC.refresh().then(function () {
+      FC.reopenPopoverIfOpen();
+      FC.recomputeBusy();
+    }).catch(function () {
+      FC.state.revision = -1;
+      FC.reopenPopoverIfOpen();
+      FC.recomputeBusy();
+    });
+  }).catch(function (err) {
+    rollback();
+    FC.toast(FC.errorText(err), 'err');
+  });
 };
 
 FC.bindDragEvents = function () {

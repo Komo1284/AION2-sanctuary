@@ -113,7 +113,8 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .fc-manage-name{font-weight:700;}
 .fc-manage-meta{color:var(--dim);font-size:11px;margin-left:auto;}
 .fc-manage-add{display:flex;gap:6px;margin-top:8px;}
-.fc-manage-add .fc-input{flex:1 1 auto;}
+.fc-manage-add .fc-input{flex:1 1 auto;min-width:0;}
+.fc-manage-add .fc-btn{flex:0 0 auto;white-space:nowrap;}
 
 .fc-popover{position:absolute;z-index:70;background:var(--panel);border:1px solid var(--gold-2);
   border-radius:12px;padding:10px;width:250px;box-shadow:0 16px 44px rgba(0,0,0,0.55);}

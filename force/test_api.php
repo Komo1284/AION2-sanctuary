@@ -291,6 +291,35 @@ t_ok($after === null, '캐릭터를 지우면 배치된 슬롯이 비워진다')
 t_eq((int)$pdo->query("SELECT COUNT(*) FROM fc_slots WHERE force_id = $fidA")->fetchColumn(), 10,
      '캐릭터를 지워도 슬롯 행 10개는 그대로 남는다');
 
+t_section('본캐 삭제 시 승계');
+
+$pidM = fc_create_player($pdo, 'zzTest_승계본캐', ['zzTest_승계부캐A', 'zzTest_승계부캐B']);
+$charsM = $pdo->query("SELECT id, is_main, sort_order FROM fc_characters
+                       WHERE player_id = $pidM ORDER BY sort_order")->fetchAll();
+$mainIdM = (int)$charsM[0]['id'];   // sort_order 0, is_main=1
+$subAId  = (int)$charsM[1]['id'];   // sort_order 1
+$subBId  = (int)$charsM[2]['id'];   // sort_order 2
+
+fc_delete_character($pdo, $mainIdM);
+
+$afterMainDel = $pdo->query("SELECT id, is_main FROM fc_characters
+                             WHERE player_id = $pidM ORDER BY sort_order")->fetchAll();
+t_eq(count($afterMainDel), 2, '본캐 삭제 후에도 부캐 2개는 그대로 남아 있다');
+t_eq((int)$afterMainDel[0]['id'], $subAId, '남은 것 중 sort_order 최소는 부캐A다');
+t_eq((int)$afterMainDel[0]['is_main'], 1, 'sort_order 최소인 부캐A가 is_main=1로 승계된다');
+t_eq((int)$afterMainDel[1]['is_main'], 0, '승계되지 않은 부캐B는 is_main=0 그대로다');
+
+$playerStillThere = $pdo->query("SELECT COUNT(*) FROM fc_players WHERE id = $pidM")->fetchColumn();
+t_ok((int)$playerStillThere === 1, '승계자가 있으면 fc_players 행이 남아 있다');
+
+fc_delete_character($pdo, $subBId);
+fc_delete_character($pdo, $subAId); // 마지막 캐릭터 — 이것도 is_main=1이었다
+
+$playerGone = $pdo->query("SELECT COUNT(*) FROM fc_players WHERE id = $pidM")->fetchColumn();
+t_ok((int)$playerGone === 0, '마지막 캐릭터를 지우면 fc_players 행도 함께 사라진다');
+$charsGone = $pdo->query("SELECT COUNT(*) FROM fc_characters WHERE player_id = $pidM")->fetchColumn();
+t_eq((int)$charsGone, 0, '마지막 캐릭터를 지우면 캐릭터도 0개가 된다');
+
 t_section('중복 감지 (순수 함수)');
 
 $fForces = [
@@ -446,6 +475,13 @@ t_eq((int)$normalRow['atul_score'], 1234, '정상 정수 atul은 여전히 반�
 $call(['action' => 'character.update', 'character_id' => $apiCid, 'atul' => null]);
 $nullRow = $pdo->query("SELECT atul_score FROM fc_characters WHERE id = $apiCid")->fetch();
 t_ok($nullRow['atul_score'] === null, 'null 값은 여전히 값 비우기로 허용된다');
+
+// (int)[99999]는 PHP에서 1이 되어 엉뚱한 1번 포스를 지우는 사고로 이어질 뻔했다.
+// fc_req_int가 배열/객체를 명시적으로 막아야 한다.
+$err6 = '';
+try { $call(['action' => 'force.delete', 'force_id' => [99999]]); }
+catch (RuntimeException $e) { $err6 = $e->getMessage(); }
+t_eq($err6, 'bad_request', 'force.delete에 배열 force_id를 넣으면 bad_request다 (int로 조용히 캐스팅되지 않는다)');
 
 $call(['action' => 'raid.delete', 'raid_id' => $apiRid]);
 $call(['action' => 'player.delete', 'player_id' => $apiPid]);
