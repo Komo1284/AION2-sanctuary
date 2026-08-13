@@ -384,12 +384,17 @@ FC.openAddPlayer = function () {
       .map(function (i) { return i.value.trim(); })
       .filter(function (v) { return v !== ''; });
 
+    var genRegister = FC.modalGen;
     save.disabled = true;
     save.textContent = '조회 중…';
     FC.api('player.create', { main_name: main, subs: subs }).then(function () {
-      FC.toast(main + ' 등록 완료', 'ok');
-      FC.closeModal();
       return FC.refresh();
+    }).then(function () {
+      FC.toast(main + ' 등록 완료', 'ok');
+      // 요청이 도는 사이 사용자가 이미 이 모달을 닫고 다른 화면으로 넘어갔으면
+      // 강제로 닫지 않는다 — 데이터는 이미 FC.refresh()로 갱신됐다.
+      if (genRegister !== FC.modalGen) return;
+      FC.closeModal();
     }).catch(function (err) {
       FC.toast(FC.errorText(err), 'err');
       save.disabled = false;
@@ -473,9 +478,10 @@ FC.bindGlobalEvents = function () {
       FC.api('character.delete', { character_id: cid })
         .then(function () { return FC.refresh(); })
         .then(function () {
-          // 요청이 도는 사이 사용자가 이미 다른 모달로 넘어갔으면 데이터만 갱신하고 화면은 건드리지 않는다
-          if (genDel !== FC.modalGen) return;
           FC.toast('삭제했어요', 'ok');
+          // 요청이 도는 사이 사용자가 이미 다른 모달로 넘어갔으면 화면은 건드리지 않는다
+          // (토스트는 어느 화면에 있든 띄운다 — 성공 사실은 항상 알아야 한다)
+          if (genDel !== FC.modalGen) return;
           FC.closeModal();
           FC.openRoster();
         })
@@ -492,8 +498,8 @@ FC.bindGlobalEvents = function () {
       FC.api('player.delete', { player_id: pid })
         .then(function () { return FC.refresh(); })
         .then(function () {
-          if (genPlayerDel !== FC.modalGen) return;
           FC.toast('삭제했어요', 'ok');
+          if (genPlayerDel !== FC.modalGen) return;
           FC.closeModal();
           FC.openRoster();
         })
@@ -508,8 +514,8 @@ FC.bindGlobalEvents = function () {
       FC.api('atul.refresh', { character_id: rid })
         .then(function () { return FC.refresh(); })
         .then(function () {
-          if (genRefresh !== FC.modalGen) return;
           FC.toast('갱신했어요', 'ok');
+          if (genRefresh !== FC.modalGen) return;
           FC.closeModal();
           FC.openRoster();
         })
@@ -530,8 +536,8 @@ FC.bindGlobalEvents = function () {
       FC.api('character.add', { player_id: ownerId, name: name })
         .then(function () { return FC.refresh(); })
         .then(function () {
-          if (genAddSub !== FC.modalGen) return;
           FC.toast(name + ' 추가 완료', 'ok');
+          if (genAddSub !== FC.modalGen) return;
           FC.closeModal();
           FC.openRoster();
         })
@@ -560,8 +566,8 @@ FC.bindGlobalEvents = function () {
       FC.api('character.add', { player_id: phOwnerId, name: phName, is_placeholder: true })
         .then(function () { return FC.refresh(); })
         .then(function () {
-          if (genAddPh !== FC.modalGen) return;
           FC.toast(phName + ' 추가 완료', 'ok');
+          if (genAddPh !== FC.modalGen) return;
           FC.closeModal();
           FC.openRoster();
         })
@@ -583,8 +589,8 @@ FC.bindGlobalEvents = function () {
           return FC.refresh().then(function () { return lookedUp; });
         })
         .then(function (lookedUp) {
-          if (genPromote !== FC.modalGen) return;
           FC.toast(lookedUp ? realName + ' 확정 완료' : realName + ' 확정 (조회 실패 — 직업은 직접 입력)', 'ok');
+          if (genPromote !== FC.modalGen) return;
           FC.closeModal();
           FC.openRoster();
         })
