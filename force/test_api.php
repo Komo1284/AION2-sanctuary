@@ -290,6 +290,59 @@ t_ok($after === null, '캐릭터를 지우면 배치된 슬롯이 비워진다')
 t_eq((int)$pdo->query("SELECT COUNT(*) FROM fc_slots WHERE force_id = $fidA")->fetchColumn(), 10,
      '캐릭터를 지워도 슬롯 행 10개는 그대로 남는다');
 
+t_section('중복 감지 (순수 함수)');
+
+$fForces = [
+    ['id' => 100, 'raid_id' => 1], ['id' => 101, 'raid_id' => 1], ['id' => 102, 'raid_id' => 2],
+];
+$fSlots = [
+    ['id' => 1, 'force_id' => 100, 'character_id' => 7],
+    ['id' => 2, 'force_id' => 101, 'character_id' => 7],   // 같은 레이드 1 안에서 중복
+    ['id' => 3, 'force_id' => 100, 'character_id' => 8],
+    ['id' => 4, 'force_id' => 102, 'character_id' => 7],   // 레이드 2 — 중복 아님
+    ['id' => 5, 'force_id' => 100, 'character_id' => null],
+];
+$dups = fc_duplicates($fForces, $fSlots);
+t_ok(isset($dups['1']), '중복이 있는 레이드 1의 키가 존재한다');
+t_eq(count($dups['1']), 1, '레이드 1의 중복 캐릭터는 1명이다');
+t_eq((int)$dups['1'][0]['character_id'], 7, '중복된 캐릭터는 7번이다');
+t_eq(array_map('intval', $dups['1'][0]['force_ids']), [100, 101], '중복된 포스 id 두 개가 잡힌다');
+t_ok(!isset($dups['2']), '레이드가 다르면 중복으로 잡지 않는다');
+
+t_section('state 스냅샷');
+
+$pid3 = fc_create_player($pdo, 'zzTest_상태본캐', ['zzTest_상태부캐']);
+$rid3 = fc_create_raid($pdo, 'zzTest_상태레이드');
+$fid4 = fc_create_force($pdo, $rid3, '수', '22:00', '메모테스트');
+$sl   = fc_slot_ids($pdo, $fid4);
+$cid3 = (int)$pdo->query("SELECT id FROM fc_characters WHERE char_name = 'zzTest_상태본캐'")->fetchColumn();
+fc_assign_slot($pdo, (int)$sl[0]['id'], $cid3);
+fc_assign_slot($pdo, (int)$sl[6]['id'], $cid3);   // 같은 레이드 같은 포스 안 중복
+
+$state = fc_state($pdo);
+t_ok(is_int($state['revision']), 'state에 revision이 정수로 들어 있다');
+
+$names = array_column($state['characters'], 'name');
+t_ok(in_array('zzTest_상태본캐', $names, true), 'state에 캐릭터가 들어 있다');
+
+$myChar = null;
+foreach ($state['characters'] as $c) { if ($c['name'] === 'zzTest_상태본캐') { $myChar = $c; break; } }
+t_eq((int)$myChar['is_main'], 1, 'state의 캐릭터에 is_main이 담긴다');
+t_ok(array_key_exists('atul', $myChar), 'state의 캐릭터 키는 atul이다 (atul_score가 아님)');
+
+$myForce = null;
+foreach ($state['forces'] as $f) { if ((int)$f['id'] === $fid4) { $myForce = $f; break; } }
+t_eq($myForce['day_of_week'], '수', 'state에 포스 요일이 담긴다');
+t_eq((int)$myForce['force_no'], 1, 'state에 포스 번호가 담긴다');
+
+$mySlots = array_values(array_filter($state['slots'], function ($s) use ($fid4) {
+    return (int)$s['force_id'] === $fid4;
+}));
+t_eq(count($mySlots), 10, 'state에 그 포스의 슬롯 10개가 담긴다');
+
+t_ok(isset($state['duplicates'][(string)$rid3]), '같은 포스 안 중복도 duplicates에 잡힌다');
+t_eq((int)$state['duplicates'][(string)$rid3][0]['character_id'], $cid3, '중복된 캐릭터 id가 맞다');
+
 fc_cleanup_test_data($pdo);
 
 exit(t_summary());
