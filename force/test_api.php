@@ -184,6 +184,66 @@ fc_delete_player($pdo, $pid);
 $left = $pdo->query("SELECT COUNT(*) FROM fc_characters WHERE player_id = $pid")->fetchColumn();
 t_eq((int)$left, 0, '플레이어를 지우면 소속 캐릭터가 전부 사라진다');
 
+t_section('레이드와 포스');
+
+$rid = fc_create_raid($pdo, 'zzTest_루드라');
+t_ok($rid > 0, '레이드가 생성된다');
+
+$fid1 = fc_create_force($pdo, $rid, '토', '19:30', '남는자리 새싹');
+$fid2 = fc_create_force($pdo, $rid, '토', '19:40', '');
+t_ok($fid1 > 0 && $fid2 > 0, '포스가 두 개 생성된다');
+
+$nos = $pdo->query("SELECT force_no FROM fc_forces WHERE raid_id = $rid ORDER BY force_no")
+           ->fetchAll(PDO::FETCH_COLUMN);
+t_eq(array_map('intval', $nos), [1, 2], '포스 번호가 1, 2로 자동 부여된다');
+
+$slotCount = (int)$pdo->query("SELECT COUNT(*) FROM fc_slots WHERE force_id = $fid1")->fetchColumn();
+t_eq($slotCount, 10, '포스 생성 시 빈 슬롯이 정확히 10행 생긴다');
+
+$shape = $pdo->query("SELECT party_no, COUNT(*) c FROM fc_slots WHERE force_id = $fid1
+                      GROUP BY party_no ORDER BY party_no")->fetchAll();
+t_eq(count($shape), 2, '슬롯이 두 파티로 나뉜다');
+t_eq((int)$shape[0]['c'], 5, '1파티가 5슬롯이다');
+t_eq((int)$shape[1]['c'], 5, '2파티가 5슬롯이다');
+
+$empty = (int)$pdo->query("SELECT COUNT(*) FROM fc_slots WHERE force_id = $fid1 AND character_id IS NULL")
+                  ->fetchColumn();
+t_eq($empty, 10, '새 포스의 슬롯은 전부 비어 있다');
+
+$f1 = $pdo->query("SELECT day_of_week, start_time, memo FROM fc_forces WHERE id = $fid1")->fetch();
+t_eq($f1['day_of_week'], '토', '요일이 저장된다');
+t_eq($f1['start_time'], '19:30', '시각이 저장된다');
+t_eq($f1['memo'], '남는자리 새싹', '메모가 저장된다');
+
+fc_update_force($pdo, $fid1, ['day_of_week' => '일', 'start_time' => '20:00']);
+$f1b = $pdo->query("SELECT day_of_week, start_time FROM fc_forces WHERE id = $fid1")->fetch();
+t_eq($f1b['day_of_week'], '일', '요일을 수정할 수 있다');
+t_eq($f1b['start_time'], '20:00', '시각을 수정할 수 있다');
+
+t_section('포스 삭제 시 번호를 다시 매기지 않는다');
+
+fc_delete_force($pdo, $fid1);
+$slotsGone = (int)$pdo->query("SELECT COUNT(*) FROM fc_slots WHERE force_id = $fid1")->fetchColumn();
+t_eq($slotsGone, 0, '포스를 지우면 슬롯 10행도 함께 사라진다');
+
+$remain = $pdo->query("SELECT force_no FROM fc_forces WHERE raid_id = $rid")->fetchAll(PDO::FETCH_COLUMN);
+t_eq(array_map('intval', $remain), [2], '남은 포스의 번호는 2 그대로다 (재부여 없음)');
+
+$fid3 = fc_create_force($pdo, $rid, '월', '21:00', '');
+$no3 = (int)$pdo->query("SELECT force_no FROM fc_forces WHERE id = $fid3")->fetchColumn();
+t_eq($no3, 3, '새 포스는 MAX+1인 3번을 받는다');
+
+t_section('레이드 삭제');
+
+fc_update_raid($pdo, $rid, ['memo' => '토요일 고정']);
+$memo = $pdo->query("SELECT memo FROM fc_raids WHERE id = $rid")->fetchColumn();
+t_eq($memo, '토요일 고정', '레이드 메모를 수정할 수 있다');
+
+fc_delete_raid($pdo, $rid);
+t_eq((int)$pdo->query("SELECT COUNT(*) FROM fc_raids WHERE id = $rid")->fetchColumn(), 0, '레이드가 삭제된다');
+t_eq((int)$pdo->query("SELECT COUNT(*) FROM fc_forces WHERE raid_id = $rid")->fetchColumn(), 0, '소속 포스가 함께 삭제된다');
+t_eq((int)$pdo->query("SELECT COUNT(*) FROM fc_slots WHERE force_id IN ($fid2, $fid3)")->fetchColumn(), 0, '소속 포스의 슬롯도 함께 삭제된다');
+
 fc_cleanup_test_data($pdo);
 
 exit(t_summary());
