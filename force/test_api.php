@@ -488,6 +488,65 @@ $call(['action' => 'player.delete', 'player_id' => $apiPid]);
 t_eq((int)$pdo->query("SELECT COUNT(*) FROM fc_raids WHERE id = $apiRid")->fetchColumn(), 0,
      'raid.delete가 레이드를 지운다');
 
+t_section('전투력 매일 갱신');
+
+// 앞선 섹션들이 남긴 zzTest_ 데이터를 먼저 정리해서, fc_refresh_all_atul()이 훑는
+// 전체 캐릭터 목록을 이 섹션이 만드는 것만으로 예측 가능하게 만든다.
+fc_cleanup_test_data($pdo);
+
+$preReal = (int)$pdo->query("SELECT COUNT(*) FROM fc_characters WHERE is_placeholder = 0")->fetchColumn();
+$prePh   = (int)$pdo->query("SELECT COUNT(*) FROM fc_characters WHERE is_placeholder = 1")->fetchColumn();
+
+$refreshPid = fc_create_player($pdo, 'zzTest_아툴갱신본캐', ['zzTest_아툴갱신실패']);
+$refreshPhId = fc_add_character($pdo, $refreshPid, 'zzTest_아툴갱신임시', null, true);
+
+$refreshRows = $pdo->query("SELECT id, char_name FROM fc_characters WHERE player_id = $refreshPid")->fetchAll();
+$refreshIdByName = [];
+foreach ($refreshRows as $r) { $refreshIdByName[$r['char_name']] = (int)$r['id']; }
+$successId = $refreshIdByName['zzTest_아툴갱신본캐'];
+$failId    = $refreshIdByName['zzTest_아툴갱신실패'];
+
+// 실패 케이스는 "기존 값이 그대로 남는다"를 확인해야 하므로 미리 알려진 값을 심어둔다.
+// (기존 값을 UPDATE로 직접 심는 이유: fc_create_player는 lookup 없이 만들어 기본값이 비어 있다)
+$pdo->prepare("UPDATE fc_characters SET char_class = ?, atul_score = ?, item_level = ? WHERE id = ?")
+    ->execute(['수호성', 55555, 4000, $failId]);
+
+$refreshLookupCalls = [];
+$refresh_lookup = function ($name) use (&$refreshLookupCalls) {
+    $refreshLookupCalls[] = $name;
+    if ($name === 'zzTest_아툴갱신본캐') {
+        return ['class' => '검성', 'atul' => 99999, 'item_level' => 3600];
+    }
+    return null; // 그 외(우리 실패 테스트 캐릭 포함, 다른 잔존 실캐릭이 있다면 그것도)는 조회 실패
+};
+
+$revBeforeRefresh = fc_revision($pdo);
+$refreshResult = fc_refresh_all_atul($pdo, $refresh_lookup, 0); // sleepMs=0 — 테스트를 느리게 만들지 않는다
+$revAfterRefresh = fc_revision($pdo);
+
+$successRow = $pdo->query("SELECT char_class, atul_score, item_level, atul_updated_at
+                           FROM fc_characters WHERE id = $successId")->fetch();
+t_eq($successRow['char_class'], '검성', '조회 성공 시 char_class가 갱신된다');
+t_eq((int)$successRow['atul_score'], 99999, '조회 성공 시 atul_score가 갱신된다');
+t_eq((int)$successRow['item_level'], 3600, '조회 성공 시 item_level이 갱신된다');
+t_ok($successRow['atul_updated_at'] !== null, '조회 성공 시 atul_updated_at이 채워진다');
+
+$failRow = $pdo->query("SELECT char_class, atul_score, item_level FROM fc_characters WHERE id = $failId")->fetch();
+t_eq($failRow['char_class'], '수호성', '조회 실패 시 char_class는 기존 값 그대로 남는다');
+t_eq((int)$failRow['atul_score'], 55555, '조회 실패 시 atul_score는 기존 값 그대로 남는다');
+t_eq((int)$failRow['item_level'], 4000, '조회 실패 시 item_level은 기존 값 그대로 남는다');
+
+t_ok(!in_array('zzTest_아툴갱신임시', $refreshLookupCalls, true), '임시 캐릭터는 조회 함수가 호출되지 않는다');
+
+t_eq($revAfterRefresh, $revBeforeRefresh + 1, '전체 실행 후 revision이 정확히 1 증가한다 (캐릭터마다가 아니라 한 번만)');
+
+$expectUpdated = 1;
+$expectFailed  = ($preReal + 2) - $expectUpdated; // 우리가 만든 실캐릭 2명(성공1+실패1) + 기존 실캐릭 중 성공 1명 제외
+$expectSkipped = $prePh + 1;
+t_eq($refreshResult['updated'], $expectUpdated, 'updated 개수가 실제 갱신 성공 건수와 일치한다');
+t_eq($refreshResult['failed'], $expectFailed, 'failed 개수가 실제 갱신 실패 건수와 일치한다');
+t_eq($refreshResult['skipped'], $expectSkipped, 'skipped 개수가 실제 건너뛴 임시 캐릭터 수와 일치한다');
+
 fc_cleanup_test_data($pdo);
 
 exit(t_summary());

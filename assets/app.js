@@ -241,16 +241,30 @@ FC.renderSlot = function (slot, dupIds) {
 
   var main = FC.mainOf(c.player_id);
   var isDup = dupIds.indexOf(Number(c.id)) !== -1;
+  var isMain = Number(c.is_main) === 1;
   var isPh = Number(c.is_placeholder) === 1;
+
+  var top = [FC.el('span', { class: 'fc-slot-name', text: (isMain ? '⭐' : '') + c.name })];
+  if (!isMain && main) {
+    top.push(FC.el('span', { class: 'fc-slot-owner', text: main.name }));
+  }
+
+  var metaText;
+  if (isPh) {
+    metaText = '미정';
+  } else {
+    var clsText = c.class || '직업?';
+    var atulText = c.atul ? Number(c.atul).toLocaleString() : '—';
+    metaText = clsText + ' · ' + atulText;
+  }
+
   var node = FC.el('div', {
     class: 'fc-slot is-filled' + (isDup ? ' is-dup' : '') + (isPh ? ' is-placeholder' : ''),
     'data-slot-id': slot.id, 'data-character-id': c.id, draggable: 'true',
     style: '--slot-color:' + FC.classColor(c.class)
   }, [
-    FC.el('span', { class: 'fc-slot-name', text: c.name }),
-    FC.el('span', { class: 'fc-slot-owner',
-      text: isPh ? (main ? main.name + ' · 미정' : '미정')
-                 : (main && main.id !== c.id ? main.name : c.class || '') })
+    FC.el('div', { class: 'fc-slot-top' }, top),
+    FC.el('div', { class: 'fc-slot-meta', text: metaText })
   ]);
   node.appendChild(FC.el('button', { class: 'fc-slot-x', type: 'button', 'data-slot-id': slot.id, text: '×' }));
   return node;

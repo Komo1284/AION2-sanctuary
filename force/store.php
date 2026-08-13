@@ -135,6 +135,65 @@ function fc_update_character(PDO $pdo, $id, array $fields) {
     fc_bump_revision($pdo);
 }
 
+// fc_update_character()와 달리 revision을 올리지 않는다. 매일 갱신 스크립트가
+// 수십~수백 명을 갱신하는 동안 매번 revision을 올리면 접속 중인 브라우저가
+// 그만큼 여러 번 다시 그리게 된다 — 그래서 여러 캐릭터를 갱신하는 호출자가
+// 전부 끝난 뒤 fc_bump_revision()을 한 번만 부르는 패턴을 쓴다.
+// 이름은 바꾸지 않으므로 이름 중복 검사도 필요 없다.
+function fc_update_character_lookup_result(PDO $pdo, $id, array $info) {
+    $pdo->prepare("UPDATE fc_characters
+                   SET char_class = ?, atul_score = ?, item_level = ?, atul_updated_at = ?
+                   WHERE id = ?")
+        ->execute([
+            (string)$info['class'],
+            $info['atul'] === null ? null : (int)$info['atul'],
+            $info['item_level'] === null ? null : (int)$info['item_level'],
+            date('Y-m-d H:i:s'),
+            $id,
+        ]);
+}
+
+// 매일 갱신 스크립트의 본체. $lookup: function(string $name): ?array{class,atul,item_level}
+// (fc_atul_lookup과 같은 형태). 조회 실패($lookup이 null을 돌려주면)는 기존 값을 그대로
+// 둔다 — 외부 API 점검·순단·개명 등으로 흔히 일어나는데, 그때마다 값을 비우면 하루 만에
+// 전체 명단의 전투력이 날아갈 수 있다. 임시 캐릭터(is_placeholder=1)는 외부 API에 없는
+// 이름이므로 애초에 조회하지 않는다.
+function fc_refresh_all_atul(PDO $pdo, $lookup, $sleepMs = 300) {
+    $rows = $pdo->query("SELECT id, char_name, is_placeholder FROM fc_characters ORDER BY id")->fetchAll();
+
+    $updated = 0;
+    $failed  = 0;
+    $skipped = 0;
+    $first   = true;
+
+    foreach ($rows as $row) {
+        if ((int)$row['is_placeholder'] === 1) {
+            $skipped++;
+            continue;
+        }
+
+        if (!$first && $sleepMs > 0) usleep($sleepMs * 1000);
+        $first = false;
+
+        $got = is_callable($lookup) ? call_user_func($lookup, $row['char_name']) : null;
+        if (!is_array($got)) {
+            $failed++;
+            continue;
+        }
+
+        fc_update_character_lookup_result($pdo, (int)$row['id'], [
+            'class'      => isset($got['class']) ? $got['class'] : '',
+            'atul'       => isset($got['atul']) ? $got['atul'] : null,
+            'item_level' => isset($got['item_level']) ? $got['item_level'] : null,
+        ]);
+        $updated++;
+    }
+
+    fc_bump_revision($pdo);
+
+    return ['updated' => $updated, 'failed' => $failed, 'skipped' => $skipped];
+}
+
 // 본캐를 지우면 남은 캐릭터 중 sort_order가 가장 작은 것이 본캐를 승계한다.
 // 승계자가 없으면(마지막 캐릭터였으면) 고아 fc_players 행도 함께 지운다.
 // 이걸 빼먹으면 그 플레이어의 남은 부캐가 FC.mainOf()에서 찾아지지 않아
