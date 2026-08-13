@@ -1,0 +1,23 @@
+/* 디자인 토큰 — 기존 사이트의 다크 네이비 + 골드 톤 계승 */
+:root{
+  --bg:#0a0c14; --panel:#0f1220; --panel-2:#141830; --line:#1e2840; --line-2:#2b3452;
+  --text:#e8eaf0; --muted:#8a9ab8; --dim:#4a5a78;
+  --gold:#f0c96a; --gold-2:#c9a84c; --blue:#3a7bd5; --danger:#e74c3c;
+  --radius:10px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.fc-header{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--line);}
+.fc-legion{font-size:24px;font-weight:900;color:var(--gold);}
+.fc-brand-sub{margin-left:10px;font-size:13px;color:var(--muted);letter-spacing:1px;}
+.fc-app{display:grid;grid-template-columns:270px 1fr;gap:16px;padding:16px 20px;align-items:start;}
+.fc-sidebar{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px;position:sticky;top:16px;}
+.fc-main{min-width:0;}
+.fc-btn{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;color:var(--text);
+  padding:7px 12px;font-family:inherit;font-size:13px;cursor:pointer;}
+.fc-btn:hover{border-color:var(--blue);}
+.fc-link{color:var(--muted);font-size:13px;text-decoration:none;margin-right:14px;}
+.fc-link:hover{color:var(--gold);}
+.fc-conn{position:fixed;top:0;left:0;right:0;z-index:90;background:var(--danger);color:#fff;
+  text-align:center;font-size:13px;padding:6px;}
+.fc-toast-wrap{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:100;}
