@@ -327,14 +327,21 @@ FC.startPolling = function () {
   }, 10000);
 };
 
+// 모달이 열리거나 닫힐 때마다 증가하는 세대 토큰. 요청을 시작한 시점의 토큰과
+// 응답이 돌아온 시점의 토큰이 다르면, 그 사이 사용자가 이미 다른 모달로 넘어간
+// 것이므로 콜백이 화면을 강제로 갈아엎지 않는다 (데이터 갱신 자체는 그대로 한다).
+FC.modalGen = 0;
+
 FC.closeModal = function () {
   var host = document.getElementById('fc-modal');
   host.hidden = true;
   host.innerHTML = '';
   FC.busy = false;
+  FC.modalGen++;
 };
 
 FC.openModal = function (title, contentEl) {
+  FC.modalGen++;
   var host = document.getElementById('fc-modal');
   host.innerHTML = '';
   var panel = FC.el('div', { class: 'fc-modal-panel' }, [
@@ -462,9 +469,16 @@ FC.bindGlobalEvents = function () {
       var cid = Number(t.getAttribute('data-character-id'));
       var ch = FC.byId(FC.state.characters, cid);
       if (!confirm((ch ? ch.name : '이 캐릭터') + ' 을(를) 삭제할까요? 배치된 자리도 비워집니다.')) return;
+      var genDel = FC.modalGen;
       FC.api('character.delete', { character_id: cid })
-        .then(function () { FC.toast('삭제했어요', 'ok'); return FC.refresh(); })
-        .then(function () { FC.closeModal(); FC.openRoster(); })
+        .then(function () { return FC.refresh(); })
+        .then(function () {
+          // 요청이 도는 사이 사용자가 이미 다른 모달로 넘어갔으면 데이터만 갱신하고 화면은 건드리지 않는다
+          if (genDel !== FC.modalGen) return;
+          FC.toast('삭제했어요', 'ok');
+          FC.closeModal();
+          FC.openRoster();
+        })
         .catch(function (err) { FC.toast(FC.errorText(err), 'err'); });
       return;
     }
@@ -474,19 +488,31 @@ FC.bindGlobalEvents = function () {
       var m = FC.mainOf(pid);
       var n = FC.charsOfPlayer(pid).length;
       if (!confirm((m ? m.name : '이 사람') + ' 의 캐릭터 ' + n + '개를 전부 삭제할까요?')) return;
+      var genPlayerDel = FC.modalGen;
       FC.api('player.delete', { player_id: pid })
-        .then(function () { FC.toast('삭제했어요', 'ok'); return FC.refresh(); })
-        .then(function () { FC.closeModal(); FC.openRoster(); })
+        .then(function () { return FC.refresh(); })
+        .then(function () {
+          if (genPlayerDel !== FC.modalGen) return;
+          FC.toast('삭제했어요', 'ok');
+          FC.closeModal();
+          FC.openRoster();
+        })
         .catch(function (err) { FC.toast(FC.errorText(err), 'err'); });
       return;
     }
 
     if (t.classList.contains('fc-char-refresh')) {
       var rid = Number(t.getAttribute('data-character-id'));
+      var genRefresh = FC.modalGen;
       t.disabled = true; t.textContent = '조회중';
       FC.api('atul.refresh', { character_id: rid })
-        .then(function () { FC.toast('갱신했어요', 'ok'); return FC.refresh(); })
-        .then(function () { FC.closeModal(); FC.openRoster(); })
+        .then(function () { return FC.refresh(); })
+        .then(function () {
+          if (genRefresh !== FC.modalGen) return;
+          FC.toast('갱신했어요', 'ok');
+          FC.closeModal();
+          FC.openRoster();
+        })
         .catch(function (err) {
           FC.toast(FC.errorText(err), 'err');
           t.disabled = false; t.textContent = '갱신';
@@ -499,10 +525,16 @@ FC.bindGlobalEvents = function () {
       var input = t.parentNode.querySelector('.fc-add-sub-name');
       var name = input.value.trim();
       if (!name) { FC.toast('부캐명을 입력하세요', 'err'); return; }
+      var genAddSub = FC.modalGen;
       t.disabled = true; t.textContent = '조회중';
       FC.api('character.add', { player_id: ownerId, name: name })
-        .then(function () { FC.toast(name + ' 추가 완료', 'ok'); return FC.refresh(); })
-        .then(function () { FC.closeModal(); FC.openRoster(); })
+        .then(function () { return FC.refresh(); })
+        .then(function () {
+          if (genAddSub !== FC.modalGen) return;
+          FC.toast(name + ' 추가 완료', 'ok');
+          FC.closeModal();
+          FC.openRoster();
+        })
         .catch(function (err) {
           FC.toast(FC.errorText(err), 'err');
           t.disabled = false; t.textContent = '추가';
@@ -523,10 +555,16 @@ FC.bindGlobalEvents = function () {
         }).length;
         phName = (phMainChar ? phMainChar.name : '') + '부캐' + (phCount + 1);
       }
+      var genAddPh = FC.modalGen;
       t.disabled = true;
       FC.api('character.add', { player_id: phOwnerId, name: phName, is_placeholder: true })
-        .then(function () { FC.toast(phName + ' 추가 완료', 'ok'); return FC.refresh(); })
-        .then(function () { FC.closeModal(); FC.openRoster(); })
+        .then(function () { return FC.refresh(); })
+        .then(function () {
+          if (genAddPh !== FC.modalGen) return;
+          FC.toast(phName + ' 추가 완료', 'ok');
+          FC.closeModal();
+          FC.openRoster();
+        })
         .catch(function (err) { FC.toast(FC.errorText(err), 'err'); t.disabled = false; });
       return;
     }
@@ -537,13 +575,19 @@ FC.bindGlobalEvents = function () {
       if (realName === null) return;
       realName = realName.trim();
       if (!realName) { FC.toast('캐릭명을 입력하세요', 'err'); return; }
+      var genPromote = FC.modalGen;
       t.disabled = true; t.textContent = '조회중';
       FC.api('character.promote', { character_id: promoteId, name: realName })
         .then(function (data) {
-          FC.toast(data && data.looked_up ? realName + ' 확정 완료' : realName + ' 확정 (조회 실패 — 직업은 직접 입력)', 'ok');
-          return FC.refresh();
+          var lookedUp = !!(data && data.looked_up);
+          return FC.refresh().then(function () { return lookedUp; });
         })
-        .then(function () { FC.closeModal(); FC.openRoster(); })
+        .then(function (lookedUp) {
+          if (genPromote !== FC.modalGen) return;
+          FC.toast(lookedUp ? realName + ' 확정 완료' : realName + ' 확정 (조회 실패 — 직업은 직접 입력)', 'ok');
+          FC.closeModal();
+          FC.openRoster();
+        })
         .catch(function (err) {
           FC.toast(FC.errorText(err), 'err');
           t.disabled = false; t.textContent = '확정';
