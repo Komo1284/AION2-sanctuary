@@ -772,14 +772,28 @@ FC.bindGlobalEvents = function () {
 };
 
 FC.drag = null;
+FC.openPopoverPlayerId = null;
 
 FC.closePopover = function () {
   var pop = document.getElementById('fc-popover');
   pop.hidden = true;
   pop.innerHTML = '';
+  FC.openPopoverPlayerId = null;
   var opened = document.querySelector('.fc-roster-card.is-open');
   if (opened) opened.classList.remove('is-open');
-  if (!FC.drag) FC.busy = false;
+  // 드래그 중이 아니고, 모달도 열려 있지 않을 때만 busy를 푼다 — 모달이 열린 채로
+  // 이 함수가 호출돼도(예: 클릭 위임의 catch-all) 모달 폼 작성 중 폴링이 재개되면 안 된다.
+  if (!FC.drag && document.getElementById('fc-modal').hidden) FC.busy = false;
+};
+
+// 드롭 성공/롤백 뒤 팝오버가 열려 있으면 같은 플레이어로 다시 그려서
+// is-placed/포스 태그와 앵커 카드의 is-open 테두리를 최신 상태로 되돌린다.
+FC.reopenPopoverIfOpen = function () {
+  var pop = document.getElementById('fc-popover');
+  if (pop.hidden || FC.openPopoverPlayerId === null) return;
+  var pid = FC.openPopoverPlayerId;
+  var card = document.querySelector('.fc-roster-card[data-player-id="' + pid + '"]');
+  if (card) FC.openPopover(pid, card);
 };
 
 FC.openPopover = function (playerId, anchorEl) {
@@ -835,10 +849,24 @@ FC.openPopover = function (playerId, anchorEl) {
   }
 
   pop.hidden = false;
+  FC.openPopoverPlayerId = playerId;
   var rect = anchorEl.getBoundingClientRect();
+
+  // 보드(#fc-board)를 절대 가리면 안 된다 — 팝오버는 사이드바 폭 안에 눕혀서라도
+  // 오른쪽 끝이 보드 왼쪽 경계보다 왼쪽에 오도록 clamp한다. pop.hidden을 이미
+  // false로 만든 뒤라서 offsetWidth가 0이 아닌 실제 렌더 폭을 준다.
+  var popWidth = pop.offsetWidth;
+  var left = rect.left;
+  var boardEl = document.getElementById('fc-board');
+  if (boardEl) {
+    var boardRect = boardEl.getBoundingClientRect();
+    left = Math.min(left, boardRect.left - 10 - popWidth);
+  }
+  left = Math.max(8, left);
+  pop.style.left = (left + window.scrollX) + 'px';
+
   var top = Math.min(rect.top + window.scrollY, window.scrollY + window.innerHeight - pop.offsetHeight - 16);
   pop.style.top = Math.max(window.scrollY + 8, top) + 'px';
-  pop.style.left = (rect.right + 10) + 'px';
 
   anchorEl.classList.add('is-open');
   FC.busy = true;
@@ -861,6 +889,7 @@ FC.dropOnSlot = function (slotId) {
     snapshot.forEach(function (s) { byId[String(s.id)] = s.character_id; });
     (FC.state.slots || []).forEach(function (s) { s.character_id = byId[String(s.id)]; });
     FC.render();
+    FC.reopenPopoverIfOpen();
   };
 
   var call;
@@ -879,7 +908,9 @@ FC.dropOnSlot = function (slotId) {
   }
 
   FC.render();
+  FC.reopenPopoverIfOpen();
   call.then(function () { return FC.refresh(); })
+      .then(function () { FC.reopenPopoverIfOpen(); })
       .catch(function (err) { rollback(); FC.toast(FC.errorText(err), 'err'); });
 };
 
