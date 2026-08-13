@@ -298,13 +298,15 @@ var ERROR_TEXT = {
   'lookup_failed': '아툴 조회에 실패했어요',
   'slot_not_found': '슬롯을 찾을 수 없어요',
   'empty_name': '이름을 입력하세요',
-  'unknown_action': '알 수 없는 요청이에요'
+  'unknown_action': '알 수 없는 요청이에요',
+  'bad_json': '요청 형식에 문제가 있어요. 새로고침 후 다시 시도하세요',
+  'server_error': '서버에 문제가 생겼어요. 잠시 후 다시 시도하세요'
 };
 
 FC.errorText = function (err) {
   var msg = err && err.message ? err.message : '';
   if (msg.indexOf('duplicate_name') === 0) {
-    var who = msg.split(':')[1] || '';
+    var who = msg.slice('duplicate_name:'.length) || '';
     return '이미 등록된 캐릭명이에요' + (who ? ' — ' + who : '');
   }
   return ERROR_TEXT[msg] || ('저장 실패: ' + (msg || '알 수 없는 오류'));
@@ -315,8 +317,9 @@ FC.errorText = function (err) {
 FC.startPolling = function () {
   setInterval(function () {
     if (FC.busy) return;
+    var known = FC.state.revision; // FC.api가 응답 즉시 FC.state.revision을 갱신하므로 호출 전에 스냅샷 떠야 한다
     FC.api('state', {}).then(function (state) {
-      if (Number(state.revision) === Number(FC.state.revision) &&
+      if (Number(state.revision) === Number(known) &&
           (FC.state.slots || []).length === (state.slots || []).length) return;
       FC.state = state;
       FC.render();
