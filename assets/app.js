@@ -319,7 +319,7 @@ FC.refresh = function () {
     // 고정된다. busy 전체가 아니라 FC.drag만 기준으로 삼는다 — 팝오버가 열려
     // 있어서 busy=true인 상태로 드롭 직후 refresh가 호출되는 정상 경로까지
     // 막으면 드롭 결과가 화면에 반영되지 않는다.
-    if (FC.drag) return;
+    if (FC.drag) { FC.state.revision = -1; return; }
     FC.render();
   });
 };
@@ -357,7 +357,7 @@ FC.startPolling = function () {
       // 요청을 보낸 뒤(busy=false) 응답이 오기 전(~10초 폴링 간격 안) 사용자가
       // 드래그를 시작했을 수 있다 — 응답 처리 시점에 다시 확인해야 render()가
       // 드래그 중인 슬롯 DOM을 갈아엎지 않는다.
-      if (FC.busy) return;
+      if (FC.busy) { FC.state.revision = known; return; }
       if (Number(state.revision) === Number(known) &&
           (FC.state.slots || []).length === (state.slots || []).length) return;
       FC.state = state;
