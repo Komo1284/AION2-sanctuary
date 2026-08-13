@@ -420,6 +420,33 @@ try { $call(['action' => 'force.create', 'raid_id' => 0, 'day_of_week' => '', 's
 catch (RuntimeException $e) { $err3 = $e->getMessage(); }
 t_eq($err3, 'bad_request', 'raid_id가 없으면 bad_request다');
 
+// 배열/객체가 스칼라 필드에 섞여 들어와도 조용히 덮어쓰지 않고 bad_request로 막혀야 한다
+$beforeRow = $pdo->query("SELECT char_name, atul_score FROM fc_characters WHERE id = $apiCid")->fetch();
+
+$err4 = '';
+try { $call(['action' => 'character.update', 'character_id' => $apiCid, 'name' => ['a', 'b']]); }
+catch (RuntimeException $e) { $err4 = $e->getMessage(); }
+t_eq($err4, 'bad_request', 'character.update에 배열 name을 넣으면 bad_request다');
+
+$err5 = '';
+try { $call(['action' => 'character.update', 'character_id' => $apiCid, 'atul' => ['x' => 1]]); }
+catch (RuntimeException $e) { $err5 = $e->getMessage(); }
+t_eq($err5, 'bad_request', 'character.update에 배열/객체 atul을 넣으면 bad_request다');
+
+$afterRow = $pdo->query("SELECT char_name, atul_score FROM fc_characters WHERE id = $apiCid")->fetch();
+t_eq($afterRow['char_name'], $beforeRow['char_name'], '실패 후에도 char_name이 원래 값 그대로 남아 있다 (부분 적용 없음)');
+t_eq($afterRow['atul_score'], $beforeRow['atul_score'], '실패 후에도 atul_score가 원래 값 그대로 남아 있다 (부분 적용 없음)');
+
+// 정상 스칼라 값과 null은 여전히 통과해야 한다
+$call(['action' => 'character.update', 'character_id' => $apiCid, 'name' => 'zzTest_API본캐수정', 'atul' => 1234]);
+$normalRow = $pdo->query("SELECT char_name, atul_score FROM fc_characters WHERE id = $apiCid")->fetch();
+t_eq($normalRow['char_name'], 'zzTest_API본캐수정', '정상 문자열 name은 여전히 반영된다');
+t_eq((int)$normalRow['atul_score'], 1234, '정상 정수 atul은 여전히 반영된다');
+
+$call(['action' => 'character.update', 'character_id' => $apiCid, 'atul' => null]);
+$nullRow = $pdo->query("SELECT atul_score FROM fc_characters WHERE id = $apiCid")->fetch();
+t_ok($nullRow['atul_score'] === null, 'null 값은 여전히 값 비우기로 허용된다');
+
 $call(['action' => 'raid.delete', 'raid_id' => $apiRid]);
 $call(['action' => 'player.delete', 'player_id' => $apiPid]);
 t_eq((int)$pdo->query("SELECT COUNT(*) FROM fc_raids WHERE id = $apiRid")->fetchColumn(), 0,

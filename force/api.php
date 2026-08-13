@@ -13,7 +13,17 @@ function fc_req_int(array $req, $key) {
 
 function fc_req_str(array $req, $key, $default = '') {
     if (!isset($req[$key]) || $req[$key] === null) return $default;
+    if (is_array($req[$key]) || is_object($req[$key])) throw new RuntimeException('bad_request');
     return trim((string)$req[$key]);
+}
+
+// store로 넘길 $fields를 채우기 전에 배열/객체를 걸러낸다. store는 값을 그대로
+// 바인딩만 하고 타입을 검사하지 않으므로, 여기서 막지 않으면 (예: atul에 배열을
+// 넣으면) 조용히 잘못된 값으로 덮어써진다. null은 "값 비우기"로 허용한다.
+function fc_req_scalar($value) {
+    if ($value === null) return null;
+    if (is_array($value) || is_object($value)) throw new RuntimeException('bad_request');
+    return $value;
 }
 
 // HTTP를 모르는 순수 디스패처. 실패는 RuntimeException으로 던진다.
@@ -48,7 +58,7 @@ function fc_api_dispatch(PDO $pdo, array $req, $lookup) {
             if ($cid <= 0) throw new RuntimeException('bad_request');
             $fields = [];
             foreach (['name', 'class', 'atul', 'item_level', 'is_placeholder'] as $k) {
-                if (array_key_exists($k, $req)) $fields[$k] = $req[$k];
+                if (array_key_exists($k, $req)) $fields[$k] = fc_req_scalar($req[$k]);
             }
             fc_update_character($pdo, $cid, $fields);
             return ['updated' => $cid];
@@ -85,7 +95,7 @@ function fc_api_dispatch(PDO $pdo, array $req, $lookup) {
             if ($rid <= 0) throw new RuntimeException('bad_request');
             $fields = [];
             foreach (['name', 'memo'] as $k) {
-                if (array_key_exists($k, $req)) $fields[$k] = $req[$k];
+                if (array_key_exists($k, $req)) $fields[$k] = fc_req_scalar($req[$k]);
             }
             fc_update_raid($pdo, $rid, $fields);
             return ['updated' => $rid];
@@ -109,7 +119,7 @@ function fc_api_dispatch(PDO $pdo, array $req, $lookup) {
             if ($fid <= 0) throw new RuntimeException('bad_request');
             $fields = [];
             foreach (['day_of_week', 'start_time', 'memo'] as $k) {
-                if (array_key_exists($k, $req)) $fields[$k] = $req[$k];
+                if (array_key_exists($k, $req)) $fields[$k] = fc_req_scalar($req[$k]);
             }
             fc_update_force($pdo, $fid, $fields);
             return ['updated' => $fid];
@@ -163,7 +173,7 @@ if (isset($_SERVER['REQUEST_METHOD']) && basename($_SERVER['SCRIPT_FILENAME']) =
 
     if (empty($_SESSION['sanctuary_site_auth'])) {
         http_response_code(403);
-        echo json_encode(['ok' => false, 'error' => 'unauthorized']);
+        echo json_encode(['ok' => false, 'error' => 'unauthorized'], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
@@ -171,7 +181,7 @@ if (isset($_SERVER['REQUEST_METHOD']) && basename($_SERVER['SCRIPT_FILENAME']) =
     $req = json_decode($raw, true);
     if (!is_array($req)) {
         http_response_code(400);
-        echo json_encode(['ok' => false, 'error' => 'bad_json']);
+        echo json_encode(['ok' => false, 'error' => 'bad_json'], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
