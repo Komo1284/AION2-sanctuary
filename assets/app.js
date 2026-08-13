@@ -463,12 +463,136 @@ FC.openRoster = function () {
   FC.openModal('명단 관리', FC.el('div', {}, [addBtn, list]));
 };
 
+// ── 레이드 추가/수정 ────────────────────────────────────────
+FC.openRaidForm = function (raid) {
+  var nameInput = FC.el('input', { class: 'fc-input', type: 'text', placeholder: '레이드 이름 (예: 루드라)' });
+  var memoInput = FC.el('input', { class: 'fc-input', type: 'text', placeholder: '메모 (선택)' });
+  if (raid) { nameInput.value = raid.name; memoInput.value = raid.memo || ''; }
+
+  var save = FC.el('button', { class: 'fc-btn fc-btn-primary fc-block', type: 'button', text: raid ? '저장' : '추가' });
+  save.addEventListener('click', function () {
+    var name = nameInput.value.trim();
+    if (!name) { FC.toast('레이드 이름을 입력하세요', 'err'); return; }
+    save.disabled = true;
+    var genSave = FC.modalGen;
+    var call = raid
+      ? FC.api('raid.update', { raid_id: raid.id, name: name, memo: memoInput.value.trim() })
+      : FC.api('raid.create', { name: name });
+    call.then(function (data) {
+      if (!raid && data && data.raid_id) FC.activeRaidId = Number(data.raid_id);
+      return FC.refresh();
+    }).then(function () {
+      FC.toast(raid ? '저장했어요' : '추가했어요', 'ok');
+      // 요청이 도는 사이 사용자가 이미 이 모달을 닫고 다른 화면으로 넘어갔으면
+      // 강제로 닫지 않는다 — 데이터는 이미 FC.refresh()로 갱신됐다.
+      if (genSave !== FC.modalGen) return;
+      FC.closeModal();
+    }).catch(function (err) { FC.toast(FC.errorText(err), 'err'); save.disabled = false; });
+  });
+
+  var children = [nameInput];
+  if (raid) children.push(memoInput);
+  children.push(save);
+
+  if (raid) {
+    var del = FC.el('button', { class: 'fc-btn fc-block', type: 'button', text: '이 레이드 삭제' });
+    del.addEventListener('click', function () {
+      var n = (FC.state.forces || []).filter(function (f) {
+        return Number(f.raid_id) === Number(raid.id);
+      }).length;
+      if (!confirm(raid.name + ' 을(를) 삭제할까요? 소속 포스 ' + n + '개가 함께 사라집니다.')) return;
+      var genDel = FC.modalGen;
+      FC.api('raid.delete', { raid_id: raid.id }).then(function () {
+        FC.activeRaidId = null;
+        return FC.refresh();
+      }).then(function () {
+        FC.toast('삭제했어요', 'ok');
+        if (genDel !== FC.modalGen) return;
+        FC.closeModal();
+      }).catch(function (err) { FC.toast(FC.errorText(err), 'err'); });
+    });
+    children.push(del);
+  }
+
+  FC.openModal(raid ? '레이드 수정' : '레이드 추가', FC.el('div', { class: 'fc-form' }, children));
+  nameInput.focus();
+};
+
+// ── 포스 추가/수정 ────────────────────────────────────────
+FC.openForceForm = function (force) {
+  var daySel = FC.el('select', { class: 'fc-input' });
+  daySel.appendChild(FC.el('option', { value: '', text: '요일 미정' }));
+  DAYS.forEach(function (d) {
+    var opt = FC.el('option', { value: d, text: d + '요일' });
+    if (force && force.day_of_week === d) opt.selected = true;
+    daySel.appendChild(opt);
+  });
+
+  var timeInput = FC.el('input', { class: 'fc-input', type: 'time' });
+  if (force && force.start_time) timeInput.value = force.start_time;
+
+  var memoInput = FC.el('input', { class: 'fc-input', type: 'text', placeholder: '메모 (예: 남는자리 새싹)' });
+  if (force) memoInput.value = force.memo || '';
+
+  var save = FC.el('button', { class: 'fc-btn fc-btn-primary fc-block', type: 'button', text: force ? '저장' : '추가' });
+  save.addEventListener('click', function () {
+    save.disabled = true;
+    var payload = {
+      day_of_week: daySel.value,
+      start_time: timeInput.value,
+      memo: memoInput.value.trim()
+    };
+    var genForceSave = FC.modalGen;
+    var call = force
+      ? FC.api('force.update', Object.assign({ force_id: force.id }, payload))
+      : FC.api('force.create', Object.assign({ raid_id: FC.activeRaidId }, payload));
+    call.then(function () {
+      return FC.refresh();
+    }).then(function () {
+      FC.toast(force ? '저장했어요' : '추가했어요', 'ok');
+      if (genForceSave !== FC.modalGen) return;
+      FC.closeModal();
+    }).catch(function (err) { FC.toast(FC.errorText(err), 'err'); save.disabled = false; });
+  });
+
+  FC.openModal(force ? (force.force_no + '포스 수정') : '포스 추가',
+    FC.el('div', { class: 'fc-form' }, [
+      FC.el('label', { class: 'fc-hint', text: '무슨 요일 몇 시에 진행하나요?' }),
+      daySel, timeInput, memoInput, save
+    ]));
+};
+
 FC.bindGlobalEvents = function () {
   document.addEventListener('click', function (e) {
     var t = e.target;
 
     if (t.id === 'fc-open-roster') { FC.openRoster(); return; }
     if (t.id === 'fc-add-player')  { FC.openAddPlayer(); return; }
+
+    if (t.id === 'fc-add-raid' || t.id === 'fc-add-raid-big') { FC.openRaidForm(null); return; }
+    if (t.id === 'fc-edit-raid') { FC.openRaidForm(FC.byId(FC.state.raids, FC.activeRaidId)); return; }
+    if (t.id === 'fc-add-force' || t.id === 'fc-add-force-big') { FC.openForceForm(null); return; }
+
+    if (t.classList.contains('fc-tab') && t.hasAttribute('data-raid-id')) {
+      FC.activeRaidId = Number(t.getAttribute('data-raid-id'));
+      FC.render();
+      return;
+    }
+
+    if (t.classList.contains('fc-force-edit')) {
+      FC.openForceForm(FC.byId(FC.state.forces, Number(t.getAttribute('data-force-id'))));
+      return;
+    }
+
+    if (t.classList.contains('fc-force-del')) {
+      var delFid = Number(t.getAttribute('data-force-id'));
+      var f = FC.byId(FC.state.forces, delFid);
+      if (!confirm((f ? f.force_no + '포스' : '이 포스') + ' 를 삭제할까요?')) return;
+      FC.api('force.delete', { force_id: delFid })
+        .then(function () { FC.toast('삭제했어요', 'ok'); return FC.refresh(); })
+        .catch(function (err) { FC.toast(FC.errorText(err), 'err'); });
+      return;
+    }
 
     if (t.classList.contains('fc-char-del')) {
       var cid = Number(t.getAttribute('data-character-id'));
