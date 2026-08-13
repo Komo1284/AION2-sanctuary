@@ -251,6 +251,17 @@ FC.render = function () {
 
 FC.busy = false;
 
+// 모달 열림, 팝오버 열림, 드래그 중 여부를 한 곳에서만 판단해 FC.busy를 계산한다.
+// 셋 중 하나라도 참이면 폴링(FC.startPolling)이 화면을 갈아엎지 않는다. busy를 여러
+// 곳에서 각자 다른 조건으로 세우거나 풀면(모달 회귀 → 드래그 회귀 순으로 실제 발생했다)
+// 회귀가 반복되므로, 상태가 바뀌는 모든 지점(모달/팝오버 열고 닫기, 드래그 시작/종료/드롭
+// 처리)이 값을 직접 대입하지 말고 이 함수만 호출한다.
+FC.recomputeBusy = function () {
+  var popOpen = !document.getElementById('fc-popover').hidden;
+  var modalOpen = !document.getElementById('fc-modal').hidden;
+  FC.busy = !!FC.drag || popOpen || modalOpen;
+};
+
 FC.toast = function (message, kind) {
   var wrap = document.getElementById('fc-toast');
   var node = FC.el('div', { class: 'fc-toast is-' + (kind || 'ok'), text: message });
@@ -336,7 +347,7 @@ FC.closeModal = function () {
   var host = document.getElementById('fc-modal');
   host.hidden = true;
   host.innerHTML = '';
-  FC.busy = false;
+  FC.recomputeBusy();
   FC.modalGen++;
 };
 
@@ -353,7 +364,7 @@ FC.openModal = function (title, contentEl) {
   ]);
   host.appendChild(panel);
   host.hidden = false;
-  FC.busy = true;
+  FC.recomputeBusy();
   document.getElementById('fc-modal-close').addEventListener('click', FC.closeModal);
   host.addEventListener('click', function (e) { if (e.target === host) FC.closeModal(); });
 };
@@ -781,9 +792,10 @@ FC.closePopover = function () {
   FC.openPopoverPlayerId = null;
   var opened = document.querySelector('.fc-roster-card.is-open');
   if (opened) opened.classList.remove('is-open');
-  // 드래그 중이 아니고, 모달도 열려 있지 않을 때만 busy를 푼다 — 모달이 열린 채로
-  // 이 함수가 호출돼도(예: 클릭 위임의 catch-all) 모달 폼 작성 중 폴링이 재개되면 안 된다.
-  if (!FC.drag && document.getElementById('fc-modal').hidden) FC.busy = false;
+  // 드래그 중이거나 모달이 열려 있으면 busy를 유지해야 한다 — FC.recomputeBusy()가
+  // 그 판단을 전담한다(모달이 열린 채로 이 함수가 호출돼도, 예: 클릭 위임의 catch-all,
+  // 모달 폼 작성 중 폴링이 재개되면 안 된다).
+  FC.recomputeBusy();
 };
 
 // 드롭 성공/롤백 뒤 팝오버가 열려 있으면 같은 플레이어로 다시 그려서
@@ -869,13 +881,21 @@ FC.openPopover = function (playerId, anchorEl) {
   pop.style.top = Math.max(window.scrollY + 8, top) + 'px';
 
   anchorEl.classList.add('is-open');
-  FC.busy = true;
+  FC.recomputeBusy();
 };
 
 // 낙관적 UI: 화면을 먼저 바꾸고 뒤에서 저장한다. 실패하면 되돌린다.
 FC.dropOnSlot = function (slotId) {
   var drag = FC.drag;
   if (!drag) return;
+
+  // 여기서 곧바로 드래그 상태를 정리한다. FC.render()/FC.reopenPopoverIfOpen()이
+  // 소스 노드(팝오버 행 또는 슬롯)를 DOM에서 분리시킬 수 있는데, 그러면 브라우저가
+  // 원본 노드에 dragend를 발생시켜도 document까지 버블링되지 않아 FC.drag가 영원히
+  // null로 안 돌아가고 FC.busy가 굳어 폴링이 영구 정지한다. dragend 핸들러가 나중에
+  // 정상적으로 오더라도 이미 null인 값을 다시 null로 만들 뿐이라 멱등하다.
+  FC.drag = null;
+  FC.recomputeBusy();
 
   var slot = null;
   (FC.state.slots || []).forEach(function (s) { if (Number(s.id) === Number(slotId)) slot = s; });
@@ -890,6 +910,7 @@ FC.dropOnSlot = function (slotId) {
     (FC.state.slots || []).forEach(function (s) { s.character_id = byId[String(s.id)]; });
     FC.render();
     FC.reopenPopoverIfOpen();
+    FC.recomputeBusy();
   };
 
   var call;
@@ -909,8 +930,9 @@ FC.dropOnSlot = function (slotId) {
 
   FC.render();
   FC.reopenPopoverIfOpen();
+  FC.recomputeBusy();
   call.then(function () { return FC.refresh(); })
-      .then(function () { FC.reopenPopoverIfOpen(); })
+      .then(function () { FC.reopenPopoverIfOpen(); FC.recomputeBusy(); })
       .catch(function (err) { rollback(); FC.toast(FC.errorText(err), 'err'); });
 };
 
@@ -931,7 +953,7 @@ FC.bindDragEvents = function () {
     } else {
       return;
     }
-    FC.busy = true;
+    FC.recomputeBusy();
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', String(FC.drag.characterId));
   });
@@ -958,8 +980,11 @@ FC.bindDragEvents = function () {
   });
 
   document.addEventListener('dragend', function () {
+    // 정상적으로 소스 노드가 살아있는 취소 경로(슬롯 밖에 드롭)에서는 이 핸들러가
+    // 유일한 정리 지점이다. 드롭이 성공해 FC.dropOnSlot()이 이미 FC.drag를 null로
+    // 만든 경우에도 다시 실행될 수 있지만 멱등하므로 문제없다.
     FC.drag = null;
-    FC.busy = !document.getElementById('fc-popover').hidden || !document.getElementById('fc-modal').hidden;
+    FC.recomputeBusy();
     Array.prototype.slice.call(document.querySelectorAll('.is-drop-target'))
       .forEach(function (n) { n.classList.remove('is-drop-target'); });
   });
