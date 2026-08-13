@@ -242,6 +242,36 @@ function fc_delete_force(PDO $pdo, $id) {
     fc_bump_revision($pdo);
 }
 
+function fc_slot_ids(PDO $pdo, $forceId) {
+    $st = $pdo->prepare("SELECT id, party_no, slot_no FROM fc_slots
+                         WHERE force_id = ? ORDER BY party_no, slot_no");
+    $st->execute([$forceId]);
+    return $st->fetchAll();
+}
+
+function fc_assign_slot(PDO $pdo, $slotId, $characterId) {
+    $cid = ($characterId === null || $characterId === '' || (int)$characterId === 0) ? null : (int)$characterId;
+    $pdo->prepare("UPDATE fc_slots SET character_id = ? WHERE id = ?")->execute([$cid, $slotId]);
+    fc_bump_revision($pdo);
+}
+
+// 빈 슬롯과의 교체도 지원한다 — 그 경우 사실상 이동이 된다.
+function fc_swap_slots(PDO $pdo, $slotIdA, $slotIdB) {
+    if ((int)$slotIdA === (int)$slotIdB) return;
+    $st = $pdo->prepare("SELECT id, character_id FROM fc_slots WHERE id IN (?, ?)");
+    $st->execute([$slotIdA, $slotIdB]);
+    $rows = $st->fetchAll();
+    if (count($rows) !== 2) throw new RuntimeException('slot_not_found');
+
+    $byId = [];
+    foreach ($rows as $r) { $byId[(int)$r['id']] = $r['character_id']; }
+
+    $upd = $pdo->prepare("UPDATE fc_slots SET character_id = ? WHERE id = ?");
+    $upd->execute([$byId[(int)$slotIdB], $slotIdA]);
+    $upd->execute([$byId[(int)$slotIdA], $slotIdB]);
+    fc_bump_revision($pdo);
+}
+
 // 테스트 전용: zzTest_ 접두사가 붙은 것만 지운다. 실제 데이터는 건드리지 않는다.
 function fc_cleanup_test_data(PDO $pdo) {
     $pids = $pdo->query("SELECT DISTINCT player_id FROM fc_characters WHERE char_name LIKE 'zzTest\\_%'")
