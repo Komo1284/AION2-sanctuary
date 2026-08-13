@@ -1,0 +1,283 @@
+# 포스 편성 사이트 전면 개편 — 설계
+
+작성일: 2026-08-13
+
+## 배경
+
+레기온의 레이드 포스 편성은 현재 엑셀 시트로 이루어진다. 시트에는 레이드(루드라, 침식)마다
+포스가 행으로 나열되고, 각 포스는 시작 시각과 두 덩어리의 이름 칸을 가진다. 이름은 손으로
+복사·붙여넣기 되며, 어떤 이름이 누구의 부캐인지는 작성자의 기억에 의존한다.
+
+기존 웹 앱(`index.php` 46KB + `sections/` + `actions/`)은 "신청 → 아툴 점수 기반 자동 편성"
+모델이었다. 실제 운영은 자동 편성을 쓰지 않고 엑셀로 회귀했으므로, 이 모델 전체를 폐기하고
+**엑셀을 그대로 대체하는 단일 페이지 드래그앤드롭 편성 도구**로 다시 만든다.
+
+## 목표
+
+- 엑셀에서 하던 편성 작업을 웹에서 더 빠르고 실수 없이 한다.
+- 어떤 이름이 누구의 캐릭터인지 화면에서 즉시 드러난다.
+- 한 캐릭터가 여러 레이드에 중복 편성되는 것은 정상이고, 같은 레이드 안 중복은 눈에 띈다.
+- 레이드와 포스를 운영 중에 자유롭게 추가한다.
+
+## 비목표
+
+- 자동 편성 알고리즘. 편성은 사람이 판단한다.
+- 모바일 편성. PC 전용으로 만든다.
+- 신청/승인 워크플로. 명단은 관리자가 직접 입력한다.
+- 제작계산기(`craft/`) 변경. 별개 기능으로 그대로 둔다.
+
+## 결정 사항
+
+| 항목 | 결정 |
+|---|---|
+| 폐기 범위 | 기존 포스 기능 전부 + 명단 데이터까지 새로 시작. `craft/`는 유지 |
+| 포스 구조 | 고정 2파티 × 5슬롯 = 10명 |
+| 편집 권한 | 사이트 비밀번호만 알면 누구나 편집 |
+| 캐릭터 정보 | 캐릭명 + 직업 + 아툴점수 + 아이템레벨 |
+| 중복 배치 | 같은 레이드 내 같은 캐릭터 중복은 **경고만**, 차단하지 않음 |
+| 대상 환경 | PC 전용 |
+| 인터랙션 | 대기창 카드 클릭 → 카드 옆 앵커드 팝오버 → 팝오버에서 슬롯으로 드래그 |
+
+## 아키텍처
+
+빌드 도구 없는 PHP + MySQL 서버 위에서 돌아간다. 기존 스택을 유지한다.
+
+```
+index.php           비밀번호 게이트 + 셸 HTML + 초기 state 임베드
+                    게이트는 기존 sanctuary_config.json의 site_password를 그대로 쓴다
+                    (파일은 서버에서 gitignore 대상 — 덮어쓰지 않는다)
+force/schema.php    테이블 생성 및 마이그레이션 (앱 시작 시 1회)
+force/api.php       JSON API 단일 엔드포인트
+force/atul.php      aion2.plaync.com 조회 (기존 actions/fetch_atul.php 로직 이식)
+force/test_api.php  서버에서 돌리는 스모크 테스트
+assets/app.js       보드 렌더 · 드래그앤드롭 · 폴링
+assets/app.css      스타일
+```
+
+삭제: `sections/`, `actions/`, `cron/`, `migrate_add_19.php`
+
+기존 `sanctuary_*` 테이블은 **DROP하지 않고 참조만 끊는다.** 새 앱은 `fc_*` 테이블만 읽고 쓴다.
+(CLAUDE.md의 데이터 파괴 금지 원칙)
+
+### 모듈 경계
+
+- `schema.php` — 테이블 정의만 안다. 다른 모듈은 스키마 생성 방법을 몰라도 된다.
+- `api.php` — HTTP/JSON 경계. 요청을 검증하고 SQL을 실행하고 `{ok, data}`를 돌려준다.
+  DOM도 HTML도 모른다.
+- `atul.php` — 외부 API 하나만 안다. 캐릭명을 받아 `{score, item_level, job}`을 돌려주거나
+  실패를 돌려준다. DB를 모른다.
+- `app.js` — 서버 state를 받아 화면을 그리고, 사용자 조작을 API 호출로 바꾼다. SQL을 모른다.
+
+## 데이터 모델
+
+```sql
+fc_players
+  id          INT PK AUTO_INCREMENT
+  sort_order  INT DEFAULT 0
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+
+fc_characters
+  id              INT PK AUTO_INCREMENT
+  player_id       INT NOT NULL
+  char_name       VARCHAR(100) NOT NULL UNIQUE
+  char_class      VARCHAR(20) DEFAULT ''
+  atul_score      INT NULL
+  item_level      INT NULL
+  is_main         TINYINT(1) DEFAULT 0
+  sort_order      INT DEFAULT 0
+  atul_updated_at DATETIME NULL
+  INDEX (player_id)
+
+fc_raids
+  id, name VARCHAR(50) NOT NULL, memo VARCHAR(200) DEFAULT '',
+  sort_order INT DEFAULT 0, created_at DATETIME
+
+fc_forces
+  id, raid_id INT NOT NULL, force_no INT NOT NULL,
+  day_of_week VARCHAR(3) NULL,      -- '월'~'일'
+  start_time  VARCHAR(5) NULL,      -- '19:30'
+  memo        VARCHAR(200) DEFAULT '',
+  sort_order  INT DEFAULT 0
+  INDEX (raid_id)
+
+fc_slots
+  id, force_id INT NOT NULL, party_no TINYINT NOT NULL,  -- 1 | 2
+  slot_no TINYINT NOT NULL,                              -- 1..5
+  character_id INT NULL
+  UNIQUE KEY (force_id, party_no, slot_no)
+  INDEX (character_id)
+
+fc_meta
+  k VARCHAR(40) PK, v VARCHAR(100)   -- revision 카운터
+```
+
+### 설계 근거
+
+**본캐와 부캐를 한 테이블에 둔다.** `fc_characters.is_main`으로만 구분한다. 배치 대상은 본캐든
+부캐든 똑같은 캐릭터이므로 `fc_slots.character_id`가 한 곳만 가리키면 된다. 대기창은
+`is_main = 1`만 걸러서 보여준다.
+
+**`char_name`에 UNIQUE를 건다.** 같은 캐릭명이 두 사람 밑에 등록되면 "이 이름이 누구 캐릭인가"라는
+이 도구의 존재 이유가 무너진다. DB가 막는다.
+
+**포스를 만들 때 빈 슬롯 10행을 미리 INSERT한다.** 드롭이
+`UPDATE fc_slots SET character_id=? WHERE id=?` 한 줄이 되고, 파티/슬롯 순서가 DB에 명시적으로
+남아 렌더링이 단순해진다. 빈 슬롯은 `character_id IS NULL`이다.
+
+**`force_no`는 서버가 부여한다.** `force.create` 시 해당 레이드의 `MAX(force_no) + 1`을 쓴다.
+포스를 삭제해도 남은 포스의 번호는 다시 매기지 않는다 — 번호가 바뀌면 "3포스 토 7시"라고
+공지해둔 약속이 어긋난다. 화면에는 저장된 번호를 그대로 표시한다.
+
+**대기창 정렬은 등록순(`sort_order`, 기본값은 생성 순서)이다.** 드래그로 순서를 바꾸는 기능은
+이번 범위에 넣지 않는다. 검색으로 찾는 것이 더 빠르다.
+
+**참조 정리는 앱 레벨에서 한다.** FK CASCADE에 의존하지 않는다.
+- 캐릭터 삭제 → 그 캐릭터가 들어간 모든 슬롯을 `character_id = NULL`로
+- 플레이어 삭제 → 소속 캐릭터 전부에 위 규칙 적용 후 캐릭터 삭제
+- 포스 삭제 → 슬롯 10행 삭제
+- 레이드 삭제 → 소속 포스와 그 슬롯 전부 삭제
+
+## 화면
+
+```
+┌─ 숲 · 포스 편성 ────────────────────────────── [명단 관리] ─┐
+├──────────┬──────────────────────────────────────────────┤
+│ 대기창    │  [루드라] [침식] [ + ]                        │
+│ 🔍 검색   │  ─────────────────────────────  [+ 포스 추가] │
+│          │                                              │
+│ ●대섬  ② │  ┌ 1포스 ─ 토 19:30 ─ 8/10 ─────────── ⋯ ┐  │
+│ ●컹용  ① │  │ 1파티 [대섬][ ＋ ][검쥐][새림][ ＋ ]     │  │
+│ ●형빈  ⓪ │  │ 2파티 [김떡][코모][ 뷔 ][지카][권유]     │  │
+│ ●세비스 ②│  └──────────────────────────────────────┘  │
+│   …      │  ┌ 2포스 ─ 토 19:40 ─ 5/10 ─────────── ⋯ ┐  │
+│          │  │ 1파티 [당당][ ＋ ][채링][광천][ ＋ ]     │  │
+│ [+ 인원]  │  │ 2파티 [형빙][ 뺍 ][ARES][ ＋ ][ ＋ ]     │  │
+└──────────┴──────────────────────────────────────────────┘
+```
+
+기존 사이트의 다크 네이비(`#0a0c14`) + 골드 톤을 계승한다.
+
+### 좌측 대기창 (고정)
+
+- 상단 검색 입력으로 이름 필터
+- 본캐 카드만 노출. 카드 = 직업 색 도트 · 본캐명 · 아툴점수 · 부캐 수
+- 카드 우측 원형 뱃지 = **현재 선택된 레이드에 이 플레이어의 캐릭터가 몇 개 배치되었는지**.
+  ⓪를 찾으면 빠진 사람을 즉시 안다.
+- 하단 `+ 인원 추가`
+
+### 팝오버
+
+대기창 카드 클릭 시 카드 오른쪽에 앵커되어 뜬다. 보드를 가리지 않는다.
+
+- ⭐본캐 + 부캐 전부가 한 줄씩. 각 줄에 캐릭명 · 직업 · 아툴점수
+- 각 줄이 드래그 소스
+- **현재 레이드에 이미 배치된 캐릭터는 흐리게 + "1포스" 뱃지** — 드래그하기 전에 중복을 안다
+- ESC 또는 바깥 클릭으로 닫힘
+
+### 포스 카드
+
+- 헤더: 포스번호 색상 뱃지 · 요일/시간 · 인원수(8/10) · ⋯메뉴(수정 / 메모 / 삭제)
+- 1파티 5슬롯, 2파티 5슬롯
+- 빈 슬롯은 점선 `＋`, 채워진 슬롯은 직업색 카드(캐릭명 크게, 아래 작게 소유자 본캐명)
+- 슬롯 카드 hover 시 × 제거 버튼
+- **슬롯 ↔ 슬롯 드래그로 자리 교체** (엑셀의 잘라내기-붙여넣기 대체)
+- 포스마다 메모 한 줄 (엑셀의 "남는자리 새싹", "떡렙팟 400K 시간 되는사람끼리")
+
+### 레이드 탭
+
+- 탭 클릭으로 전환. `+` 탭으로 레이드 추가(이름만 입력)
+- 탭 ⋯메뉴로 이름 수정 / 삭제
+- 레이드마다 상단 메모 한 줄
+
+### 중복 경고
+
+같은 레이드 안에 같은 캐릭터가 두 번 이상 배치되면 차단하지 않고,
+
+- 해당 슬롯 카드 전부에 빨간 테두리
+- 보드 상단에 `⚠ 컹용이 1포스·3포스에 중복` 배너
+
+### 빈 상태
+
+- 인원이 하나도 없을 때: 대기창에 "아직 등록된 인원이 없어요. `+ 인원 추가`로 시작하세요."
+- 레이드가 하나도 없을 때: 보드 자리에 "레이드를 먼저 만들어주세요" + 큰 `+ 레이드 추가` 버튼.
+  이때 `+ 포스 추가` 버튼은 숨긴다.
+- 선택된 레이드에 포스가 없을 때: "아직 포스가 없어요" + `+ 포스 추가` 유도
+
+### 직업 8종
+
+수호성, 검성, 살성, 궁성, 호법성, 정령성, 마도성, 치유성. 각각 고정 색상을 가지며 슬롯 카드
+배경과 대기창 도트에 쓰인다.
+
+## API
+
+`force/api.php`에 JSON POST. 요청 본문에 `action` 필드로 분기한다.
+응답은 성공 시 `{"ok": true, "data": ..., "revision": N}`, 실패 시 `{"ok": false, "error": "..."}`.
+
+| 분류 | action | 입력 |
+|---|---|---|
+| 조회 | `state` | `{since_revision?}` — 전체 스냅샷 |
+| 인원 | `player.create` | `{main_name, subs: [name, ...]}` |
+| | `player.delete` | `{player_id}` |
+| | `character.add` | `{player_id, name}` |
+| | `character.update` | `{character_id, name?, class?}` |
+| | `character.delete` | `{character_id}` |
+| 레이드 | `raid.create` / `raid.rename` / `raid.delete` | `{raid_id?, name?, memo?}` |
+| 포스 | `force.create` | `{raid_id, day_of_week, start_time, memo}` |
+| | `force.update` / `force.delete` | `{force_id, ...}` |
+| 배치 | `slot.assign` | `{slot_id, character_id \| null}` |
+| | `slot.swap` | `{slot_id_a, slot_id_b}` |
+| 점수 | `atul.refresh` | `{character_id}` 또는 `{player_id}` |
+
+### 캐릭터 등록 흐름
+
+`player.create` / `character.add`는 **캐릭명만 받는다.** 서버가 `atul.php`로 조회해
+직업 · 아툴점수 · 아이템레벨을 자동으로 채운다. 조회에 실패하면 직업 빈 값 · 점수 NULL로
+등록하고, 이후 `character.update`로 손으로 고치거나 `atul.refresh`로 재시도할 수 있다.
+**외부 API 실패가 인원 등록을 막지 않는다.**
+
+### 동시편집
+
+쓰기 단위가 전부 슬롯 하나 또는 행 하나이므로 충돌 범위가 최소다. Last-write-wins.
+
+- 모든 쓰기 후 `fc_meta.revision`을 +1
+- 클라이언트는 10초마다 `state`를 호출해 revision을 비교하고, 바뀌었을 때만 보드를 다시 그림
+- **드래그 중이거나 팝오버가 열려 있으면 갱신을 보류** — 손에 든 카드가 사라지지 않게
+
+## 에러 처리
+
+- **낙관적 UI**: 드롭 시 화면을 즉시 갱신하고 뒤에서 저장. 실패하면 카드를 원래 자리로 되돌리고
+  우하단에 토스트. 저장된 줄 알았는데 아닌 상황이 가장 위험하므로 실패를 조용히 넘기지 않는다.
+- **연결 끊김**: 폴링이나 쓰기가 네트워크 오류로 실패하면 상단에 `⚠ 서버와 연결 끊김` 배너.
+  다음 성공 시 사라짐.
+- **아툴 조회 실패**: 그 캐릭터만 점수를 `—`로 표시. 나머지 동작에 영향 없음.
+- **삭제**: 캐릭터 · 포스 · 레이드 삭제는 확인 대화상자를 거친다. 레이드 삭제는 포스 수를
+  문구에 표시한다.
+
+## 테스트
+
+로컬에 PHP가 없으므로 검증은 서버에서 한다 (CLAUDE.md 배포 워크플로).
+`craft/test_calc.php` 전례를 따라 `force/test_api.php`를 만들고 서버에서 `php force/test_api.php`로
+실행한다. 테스트는 **자기 데이터만 만들고 지운다** — 기존 `fc_*` 행을 건드리지 않는다.
+
+검증 항목:
+
+1. 스키마 생성이 멱등하다 (두 번 실행해도 오류 없음)
+2. 플레이어 + 부캐 등록 시 `fc_characters`에 `is_main` 구분이 맞게 들어간다
+3. 중복 캐릭명 등록이 UNIQUE 제약으로 거부된다
+4. 포스 생성 시 빈 슬롯이 정확히 10행(파티1 5 + 파티2 5) 생긴다
+5. `slot.assign` 후 조회하면 배치가 남는다
+6. `slot.swap`이 두 슬롯의 캐릭터를 맞바꾼다
+7. 같은 레이드 내 같은 캐릭터 중복이 감지된다 (경고 데이터가 계산된다)
+8. 캐릭터 삭제 시 배치된 슬롯이 NULL이 되고 슬롯 행 자체는 남는다
+9. 포스 삭제 시 슬롯 10행이 함께 사라진다
+10. 레이드 삭제 시 소속 포스와 슬롯이 전부 사라진다
+11. 쓰기마다 `fc_meta.revision`이 증가한다
+
+`atul.php`는 외부 API에 의존하므로 스모크 테스트에서 제외하고, 배포 후 실제 캐릭명으로
+수동 확인한다.
+
+## 배포
+
+CLAUDE.md 워크플로를 따른다. 로컬 커밋 → `git push origin main` →
+`ssh aion-sanctuary 'cd /var/www/html/sanctuary && git pull origin main && php -l <파일>'` →
+서버에서 `php force/test_api.php` → 사용자에게 `http://14.63.164.109/sanctuary/` 안내.
