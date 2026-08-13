@@ -327,6 +327,236 @@ FC.startPolling = function () {
   }, 10000);
 };
 
+FC.closeModal = function () {
+  var host = document.getElementById('fc-modal');
+  host.hidden = true;
+  host.innerHTML = '';
+  FC.busy = false;
+};
+
+FC.openModal = function (title, contentEl) {
+  var host = document.getElementById('fc-modal');
+  host.innerHTML = '';
+  var panel = FC.el('div', { class: 'fc-modal-panel' }, [
+    FC.el('div', { class: 'fc-modal-head' }, [
+      FC.el('span', { class: 'fc-modal-title', text: title }),
+      FC.el('button', { class: 'fc-icon-btn', id: 'fc-modal-close', type: 'button', text: '닫기' })
+    ]),
+    contentEl
+  ]);
+  host.appendChild(panel);
+  host.hidden = false;
+  FC.busy = true;
+  document.getElementById('fc-modal-close').addEventListener('click', FC.closeModal);
+  host.addEventListener('click', function (e) { if (e.target === host) FC.closeModal(); });
+};
+
+FC.openAddPlayer = function () {
+  var mainInput = FC.el('input', { class: 'fc-input', type: 'text', placeholder: '본캐명 (필수)' });
+  var subsWrap = FC.el('div', { class: 'fc-subs' });
+
+  function addSubRow(value) {
+    var row = FC.el('input', { class: 'fc-input fc-sub-input', type: 'text', placeholder: '부캐명' });
+    if (value) row.value = value;
+    subsWrap.appendChild(row);
+  }
+  addSubRow('');
+  addSubRow('');
+
+  var addMore = FC.el('button', { class: 'fc-btn fc-block', type: 'button', text: '+ 부캐 칸 추가' });
+  addMore.addEventListener('click', function () { addSubRow(''); });
+
+  var save = FC.el('button', { class: 'fc-btn fc-btn-primary fc-block', type: 'button', text: '등록' });
+  var hint = FC.el('p', { class: 'fc-hint',
+    text: '캐릭명만 넣으면 직업·아툴점수·아이템레벨을 자동으로 불러옵니다. 조회에 실패해도 등록은 됩니다.' });
+
+  save.addEventListener('click', function () {
+    var main = mainInput.value.trim();
+    if (!main) { FC.toast('본캐명을 입력하세요', 'err'); return; }
+    var subs = Array.prototype.slice.call(subsWrap.querySelectorAll('.fc-sub-input'))
+      .map(function (i) { return i.value.trim(); })
+      .filter(function (v) { return v !== ''; });
+
+    save.disabled = true;
+    save.textContent = '조회 중…';
+    FC.api('player.create', { main_name: main, subs: subs }).then(function () {
+      FC.toast(main + ' 등록 완료', 'ok');
+      FC.closeModal();
+      return FC.refresh();
+    }).catch(function (err) {
+      FC.toast(FC.errorText(err), 'err');
+      save.disabled = false;
+      save.textContent = '등록';
+    });
+  });
+
+  FC.openModal('인원 추가', FC.el('div', { class: 'fc-form' }, [mainInput, subsWrap, addMore, hint, save]));
+  mainInput.focus();
+};
+
+FC.openRoster = function () {
+  var list = FC.el('div', { class: 'fc-roster-manage' });
+
+  (FC.state.players || []).forEach(function (p) {
+    var main = FC.mainOf(p.id);
+    if (!main) return;
+    var chars = FC.charsOfPlayer(p.id);
+
+    var rows = FC.el('div', { class: 'fc-manage-chars' });
+    chars.forEach(function (c) {
+      var isPh = Number(c.is_placeholder) === 1;
+      var row = FC.el('div', { class: 'fc-manage-char' + (isPh ? ' is-placeholder' : '') }, [
+        FC.el('span', { class: 'fc-dot', style: 'background:' + (isPh ? '#4a5a78' : FC.classColor(c.class)) }),
+        FC.el('span', { class: 'fc-manage-name', text: (Number(c.is_main) === 1 ? '⭐ ' : '') + c.name }),
+        FC.el('span', { class: 'fc-manage-meta',
+          text: isPh ? '임시 · 미정'
+                     : ((c.class || '직업?') + ' · ' + (c.atul ? c.atul.toLocaleString() : '점수?')) })
+      ]);
+      // 임시 캐릭터는 아툴 갱신 대신 "확정" — 실제 캐릭명을 받아 조회까지 한 번에 한다
+      if (isPh) {
+        row.appendChild(FC.el('button', { class: 'fc-icon-btn fc-char-promote',
+          'data-character-id': c.id, type: 'button', text: '확정' }));
+      } else {
+        row.appendChild(FC.el('button', { class: 'fc-icon-btn fc-char-refresh',
+          'data-character-id': c.id, type: 'button', text: '갱신' }));
+      }
+      row.appendChild(FC.el('button', { class: 'fc-icon-btn fc-char-del',
+        'data-character-id': c.id, type: 'button', text: '삭제' }));
+      rows.appendChild(row);
+    });
+
+    var addSub = FC.el('div', { class: 'fc-manage-add' }, [
+      FC.el('input', { class: 'fc-input fc-add-sub-name', type: 'text', placeholder: '부캐명 추가' }),
+      FC.el('button', { class: 'fc-btn fc-add-sub-go', 'data-player-id': p.id, type: 'button', text: '추가' }),
+      FC.el('button', { class: 'fc-btn fc-add-ph-go', 'data-player-id': p.id, type: 'button', text: '임시로 추가' })
+    ]);
+
+    list.appendChild(FC.el('div', { class: 'fc-manage-player' }, [
+      FC.el('div', { class: 'fc-manage-head' }, [
+        FC.el('strong', { text: main.name }),
+        FC.el('span', { class: 'fc-spacer' }),
+        FC.el('button', { class: 'fc-icon-btn fc-player-del', 'data-player-id': p.id, type: 'button', text: '이 사람 전체 삭제' })
+      ]),
+      rows, addSub
+    ]));
+  });
+
+  if (!(FC.state.players || []).length) {
+    list.appendChild(FC.el('p', { class: 'fc-empty', text: '아직 등록된 인원이 없어요.' }));
+  }
+
+  var addBtn = FC.el('button', { class: 'fc-btn fc-btn-primary fc-block', type: 'button', text: '+ 인원 추가' });
+  addBtn.addEventListener('click', function () { FC.closeModal(); FC.openAddPlayer(); });
+
+  FC.openModal('명단 관리', FC.el('div', {}, [addBtn, list]));
+};
+
+FC.bindGlobalEvents = function () {
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+
+    if (t.id === 'fc-open-roster') { FC.openRoster(); return; }
+    if (t.id === 'fc-add-player')  { FC.openAddPlayer(); return; }
+
+    if (t.classList.contains('fc-char-del')) {
+      var cid = Number(t.getAttribute('data-character-id'));
+      var ch = FC.byId(FC.state.characters, cid);
+      if (!confirm((ch ? ch.name : '이 캐릭터') + ' 을(를) 삭제할까요? 배치된 자리도 비워집니다.')) return;
+      FC.api('character.delete', { character_id: cid })
+        .then(function () { FC.toast('삭제했어요', 'ok'); return FC.refresh(); })
+        .then(function () { FC.closeModal(); FC.openRoster(); })
+        .catch(function (err) { FC.toast(FC.errorText(err), 'err'); });
+      return;
+    }
+
+    if (t.classList.contains('fc-player-del')) {
+      var pid = Number(t.getAttribute('data-player-id'));
+      var m = FC.mainOf(pid);
+      var n = FC.charsOfPlayer(pid).length;
+      if (!confirm((m ? m.name : '이 사람') + ' 의 캐릭터 ' + n + '개를 전부 삭제할까요?')) return;
+      FC.api('player.delete', { player_id: pid })
+        .then(function () { FC.toast('삭제했어요', 'ok'); return FC.refresh(); })
+        .then(function () { FC.closeModal(); FC.openRoster(); })
+        .catch(function (err) { FC.toast(FC.errorText(err), 'err'); });
+      return;
+    }
+
+    if (t.classList.contains('fc-char-refresh')) {
+      var rid = Number(t.getAttribute('data-character-id'));
+      t.disabled = true; t.textContent = '조회중';
+      FC.api('atul.refresh', { character_id: rid })
+        .then(function () { FC.toast('갱신했어요', 'ok'); return FC.refresh(); })
+        .then(function () { FC.closeModal(); FC.openRoster(); })
+        .catch(function (err) {
+          FC.toast(FC.errorText(err), 'err');
+          t.disabled = false; t.textContent = '갱신';
+        });
+      return;
+    }
+
+    if (t.classList.contains('fc-add-sub-go')) {
+      var ownerId = Number(t.getAttribute('data-player-id'));
+      var input = t.parentNode.querySelector('.fc-add-sub-name');
+      var name = input.value.trim();
+      if (!name) { FC.toast('부캐명을 입력하세요', 'err'); return; }
+      t.disabled = true; t.textContent = '조회중';
+      FC.api('character.add', { player_id: ownerId, name: name })
+        .then(function () { FC.toast(name + ' 추가 완료', 'ok'); return FC.refresh(); })
+        .then(function () { FC.closeModal(); FC.openRoster(); })
+        .catch(function (err) {
+          FC.toast(FC.errorText(err), 'err');
+          t.disabled = false; t.textContent = '추가';
+        });
+      return;
+    }
+
+    // 어떤 캐릭터를 보낼지 안 정했을 때 쓰는 자리표시 카드.
+    // 입력칸이 비어 있으면 <본캐명>부캐N 을 자동으로 붙인다.
+    if (t.classList.contains('fc-add-ph-go')) {
+      var phOwnerId = Number(t.getAttribute('data-player-id'));
+      var phInput = t.parentNode.querySelector('.fc-add-sub-name');
+      var phName = phInput.value.trim();
+      if (!phName) {
+        var phMainChar = FC.mainOf(phOwnerId);
+        var phCount = FC.charsOfPlayer(phOwnerId).filter(function (c) {
+          return Number(c.is_placeholder) === 1;
+        }).length;
+        phName = (phMainChar ? phMainChar.name : '') + '부캐' + (phCount + 1);
+      }
+      t.disabled = true;
+      FC.api('character.add', { player_id: phOwnerId, name: phName, is_placeholder: true })
+        .then(function () { FC.toast(phName + ' 추가 완료', 'ok'); return FC.refresh(); })
+        .then(function () { FC.closeModal(); FC.openRoster(); })
+        .catch(function (err) { FC.toast(FC.errorText(err), 'err'); t.disabled = false; });
+      return;
+    }
+
+    if (t.classList.contains('fc-char-promote')) {
+      var promoteId = Number(t.getAttribute('data-character-id'));
+      var realName = prompt('실제 캐릭명을 입력하면 직업·아툴점수를 조회해 확정합니다.\n배치된 자리는 그대로 유지됩니다.', '');
+      if (realName === null) return;
+      realName = realName.trim();
+      if (!realName) { FC.toast('캐릭명을 입력하세요', 'err'); return; }
+      t.disabled = true; t.textContent = '조회중';
+      FC.api('character.promote', { character_id: promoteId, name: realName })
+        .then(function (data) {
+          FC.toast(data && data.looked_up ? realName + ' 확정 완료' : realName + ' 확정 (조회 실패 — 직업은 직접 입력)', 'ok');
+          return FC.refresh();
+        })
+        .then(function () { FC.closeModal(); FC.openRoster(); })
+        .catch(function (err) {
+          FC.toast(FC.errorText(err), 'err');
+          t.disabled = false; t.textContent = '확정';
+        });
+      return;
+    }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') FC.closeModal();
+  });
+};
+
 (function boot() {
   var raids = FC.state.raids || [];
   FC.activeRaidId = raids.length ? raids[0].id : null;
@@ -340,4 +570,5 @@ FC.startPolling = function () {
   });
   FC.render();
   FC.startPolling();
+  FC.bindGlobalEvents();
 })();
