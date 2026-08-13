@@ -153,6 +153,95 @@ function fc_delete_player(PDO $pdo, $id) {
     fc_bump_revision($pdo);
 }
 
+function fc_create_raid(PDO $pdo, $name) {
+    $name = trim($name);
+    if ($name === '') throw new RuntimeException('empty_name');
+    $order = (int)$pdo->query("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM fc_raids")->fetchColumn();
+    $pdo->prepare("INSERT INTO fc_raids (name, sort_order) VALUES (?, ?)")->execute([$name, $order]);
+    $id = (int)$pdo->lastInsertId();
+    fc_bump_revision($pdo);
+    return $id;
+}
+
+function fc_update_raid(PDO $pdo, $id, array $fields) {
+    $sets = [];
+    $args = [];
+    if (array_key_exists('name', $fields)) {
+        $n = trim($fields['name']);
+        if ($n === '') throw new RuntimeException('empty_name');
+        $sets[] = 'name = ?'; $args[] = $n;
+    }
+    if (array_key_exists('memo', $fields)) {
+        $sets[] = 'memo = ?'; $args[] = (string)$fields['memo'];
+    }
+    if (!$sets) return;
+    $args[] = $id;
+    $pdo->prepare("UPDATE fc_raids SET " . implode(', ', $sets) . " WHERE id = ?")->execute($args);
+    fc_bump_revision($pdo);
+}
+
+function fc_delete_raid(PDO $pdo, $id) {
+    $st = $pdo->prepare("SELECT id FROM fc_forces WHERE raid_id = ?");
+    $st->execute([$id]);
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $fid) {
+        $pdo->prepare("DELETE FROM fc_slots WHERE force_id = ?")->execute([(int)$fid]);
+    }
+    $pdo->prepare("DELETE FROM fc_forces WHERE raid_id = ?")->execute([$id]);
+    $pdo->prepare("DELETE FROM fc_raids WHERE id = ?")->execute([$id]);
+    fc_bump_revision($pdo);
+}
+
+// 포스 번호는 레이드별 MAX+1. 삭제해도 남은 포스의 번호는 다시 매기지 않는다 —
+// "3포스 토 7시"라고 공지해둔 약속이 어긋나면 안 된다.
+function fc_create_force(PDO $pdo, $raidId, $day, $time, $memo = '') {
+    $st = $pdo->prepare("SELECT COALESCE(MAX(force_no), 0) + 1 FROM fc_forces WHERE raid_id = ?");
+    $st->execute([$raidId]);
+    $no = (int)$st->fetchColumn();
+
+    $st2 = $pdo->prepare("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM fc_forces WHERE raid_id = ?");
+    $st2->execute([$raidId]);
+    $order = (int)$st2->fetchColumn();
+
+    $pdo->prepare("INSERT INTO fc_forces (raid_id, force_no, day_of_week, start_time, memo, sort_order)
+                   VALUES (?, ?, ?, ?, ?, ?)")
+        ->execute([$raidId, $no, $day !== '' ? $day : null, $time !== '' ? $time : null, (string)$memo, $order]);
+    $forceId = (int)$pdo->lastInsertId();
+
+    $ins = $pdo->prepare("INSERT INTO fc_slots (force_id, party_no, slot_no, character_id) VALUES (?, ?, ?, NULL)");
+    for ($party = 1; $party <= 2; $party++) {
+        for ($slot = 1; $slot <= 5; $slot++) {
+            $ins->execute([$forceId, $party, $slot]);
+        }
+    }
+    fc_bump_revision($pdo);
+    return $forceId;
+}
+
+function fc_update_force(PDO $pdo, $id, array $fields) {
+    $allowed = ['day_of_week', 'start_time', 'memo'];
+    $sets = [];
+    $args = [];
+    foreach ($allowed as $col) {
+        if (!array_key_exists($col, $fields)) continue;
+        $val = $fields[$col];
+        if ($col === 'memo') {
+            $sets[] = "$col = ?"; $args[] = (string)$val;
+        } else {
+            $sets[] = "$col = ?"; $args[] = ($val === '' || $val === null) ? null : $val;
+        }
+    }
+    if (!$sets) return;
+    $args[] = $id;
+    $pdo->prepare("UPDATE fc_forces SET " . implode(', ', $sets) . " WHERE id = ?")->execute($args);
+    fc_bump_revision($pdo);
+}
+
+function fc_delete_force(PDO $pdo, $id) {
+    $pdo->prepare("DELETE FROM fc_slots WHERE force_id = ?")->execute([$id]);
+    $pdo->prepare("DELETE FROM fc_forces WHERE id = ?")->execute([$id]);
+    fc_bump_revision($pdo);
+}
+
 // 테스트 전용: zzTest_ 접두사가 붙은 것만 지운다. 실제 데이터는 건드리지 않는다.
 function fc_cleanup_test_data(PDO $pdo) {
     $pids = $pdo->query("SELECT DISTINCT player_id FROM fc_characters WHERE char_name LIKE 'zzTest\\_%'")
