@@ -41,6 +41,8 @@
 ## 아키텍처
 
 빌드 도구 없는 PHP + MySQL 서버 위에서 돌아간다. 기존 스택을 유지한다.
+**서버 PHP는 7.4.3이다** — `match`, `str_contains`, nullsafe 연산자, 생성자 프로퍼티 승격을
+쓸 수 없다. 프론트엔드도 빌드 없이 브라우저가 바로 읽는 바닐라 JS로 쓴다.
 
 ```
 index.php           비밀번호 게이트 + 셸 HTML + 초기 state 임베드
@@ -108,7 +110,7 @@ fc_slots
   INDEX (character_id)
 
 fc_meta
-  k VARCHAR(40) PK, v VARCHAR(100)   -- revision 카운터
+  k VARCHAR(40) PK, v BIGINT NOT NULL DEFAULT 0   -- revision 카운터
 ```
 
 ### 설계 근거
