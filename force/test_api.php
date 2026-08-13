@@ -126,6 +126,32 @@ t_eq((int)$promoted['atul_score'], 40100, '전환하면 아툴점수가 채워�
 
 fc_delete_player($pdo, $pid2ph);
 
+// 리그레션: name을 안 바꾸고 is_placeholder만 바꾸는 승격도 전역 유일성 검사를 지나야 한다.
+// (name 분기 안에서만 검사하면 이 경로가 통째로 빠져나가 같은 이름의 실제 캐릭터가 중복 생긴다)
+$collideA = fc_create_player($pdo, 'zzTest_충돌A');
+$phCollideId = fc_add_character($pdo, $collideA, 'zzTest_이름충돌', null, true);
+$collideB = fc_create_player($pdo, 'zzTest_충돌B', ['zzTest_이름충돌']);
+
+$promote_noname_dup = false;
+try {
+    fc_update_character($pdo, $phCollideId, ['is_placeholder' => 0]);
+} catch (RuntimeException $e) {
+    $promote_noname_dup = (strpos($e->getMessage(), 'duplicate_name') !== false);
+}
+t_ok($promote_noname_dup, '이름을 바꾸지 않는 승격도 같은 이름의 실제 캐릭터가 있으면 duplicate_name 예외가 난다');
+
+$still_ph = (int)$pdo->query("SELECT is_placeholder FROM fc_characters WHERE id = $phCollideId")->fetchColumn();
+t_eq($still_ph, 1, '중복 승격이 거부되면 is_placeholder는 그대로 임시로 남는다');
+
+fc_delete_player($pdo, $collideB);
+
+fc_update_character($pdo, $phCollideId, ['is_placeholder' => 0]);
+$noname_promoted = $pdo->query("SELECT char_name, is_placeholder FROM fc_characters WHERE id = $phCollideId")->fetch();
+t_eq($noname_promoted['char_name'], 'zzTest_이름충돌', '충돌이 없으면 이름 변경 없는 승격도 이름이 그대로 유지된다');
+t_eq((int)$noname_promoted['is_placeholder'], 0, '충돌이 없으면 이름 변경 없는 승격이 성공한다');
+
+fc_delete_player($pdo, $collideA);
+
 t_section('아툴 조회 주입');
 
 $fake_lookup = function ($name) {

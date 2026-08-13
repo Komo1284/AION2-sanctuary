@@ -98,14 +98,21 @@ function fc_add_character(PDO $pdo, $playerId, $name, $lookup = null, $isPlaceho
 // 임시 → 실제 전환도 이 함수로 한다. 슬롯은 character_id를 가리키므로
 // 배치된 자리는 그대로 유지되고 내용만 확정된다.
 function fc_update_character(PDO $pdo, $id, array $fields) {
-    $cur = $pdo->prepare("SELECT player_id, is_placeholder FROM fc_characters WHERE id = ?");
+    $cur = $pdo->prepare("SELECT player_id, char_name, is_placeholder FROM fc_characters WHERE id = ?");
     $cur->execute([$id]);
     $row = $cur->fetch();
     if (!$row) throw new RuntimeException('not_found');
 
-    // 이름 중복 검사는 "바뀐 뒤의 is_placeholder" 기준으로 한다
+    // 이름 중복 검사는 "바뀐 뒤의 is_placeholder"와 "바뀐 뒤의 이름" 기준으로 한다.
+    // name을 안 건드리고 is_placeholder만 바꾸는 승격(임시→실제)도 전역 유일성을
+    // 깨뜨릴 수 있으므로, name 필드가 없어도 현재 이름으로 검사를 돌린다.
     $nextPlaceholder = array_key_exists('is_placeholder', $fields)
         ? (bool)$fields['is_placeholder'] : (bool)$row['is_placeholder'];
+    $nextName = array_key_exists('name', $fields) ? trim($fields['name']) : $row['char_name'];
+    if ($nextName === '') throw new RuntimeException('empty_name');
+    if (fc_name_exists($pdo, $nextName, $nextPlaceholder, (int)$row['player_id'], $id)) {
+        throw new RuntimeException('duplicate_name:' . $nextName);
+    }
 
     $map = ['name' => 'char_name', 'class' => 'char_class', 'atul' => 'atul_score',
             'item_level' => 'item_level', 'is_placeholder' => 'is_placeholder'];
@@ -114,12 +121,7 @@ function fc_update_character(PDO $pdo, $id, array $fields) {
     foreach ($map as $key => $col) {
         if (!array_key_exists($key, $fields)) continue;
         if ($key === 'name') {
-            $newName = trim($fields['name']);
-            if ($newName === '') throw new RuntimeException('empty_name');
-            if (fc_name_exists($pdo, $newName, $nextPlaceholder, (int)$row['player_id'], $id)) {
-                throw new RuntimeException('duplicate_name:' . $newName);
-            }
-            $sets[] = "$col = ?"; $args[] = $newName;
+            $sets[] = "$col = ?"; $args[] = $nextName;
         } elseif ($key === 'is_placeholder') {
             $sets[] = "$col = ?"; $args[] = $nextPlaceholder ? 1 : 0;
         } else {
