@@ -429,7 +429,14 @@ $phRow = $pdo->query("SELECT is_placeholder, char_class FROM fc_characters WHERE
 t_eq((int)$phRow['is_placeholder'], 1, 'character.add가 임시 캐릭터를 만든다');
 t_eq($phRow['char_class'], '', '임시 캐릭터는 직업이 비어 있다');
 
+// 같은 사람이 한 포스에 두 번 들어갈 수 없으므로, API 경계에서도 차단되는지 먼저 확인한다
+$apiBlocked = '';
+try { $call(['action' => 'slot.assign', 'slot_id' => (int)$apiSlots[3]['id'], 'character_id' => $apiPhId]); }
+catch (RuntimeException $e) { $apiBlocked = $e->getMessage(); }
+t_ok(strpos($apiBlocked, 'player_conflict:') === 0, 'slot.assign이 같은 포스 중복을 player_conflict로 막는다');
+
 // 임시 캐릭터를 슬롯에 배치한 뒤 확정해도 자리가 유지되어야 한다
+$call(['action' => 'slot.assign', 'slot_id' => (int)$apiSlots[9]['id'], 'character_id' => null]);
 $call(['action' => 'slot.assign', 'slot_id' => (int)$apiSlots[3]['id'], 'character_id' => $apiPhId]);
 $promoteRes = $call(['action' => 'character.promote', 'character_id' => $apiPhId, 'name' => 'zzTest_API확정']);
 t_ok(array_key_exists('looked_up', $promoteRes), 'character.promote가 looked_up을 알려준다');
