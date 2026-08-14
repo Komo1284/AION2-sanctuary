@@ -216,11 +216,27 @@ FC.renderForce = function (force, dupIds) {
   });
   var filled = slots.filter(function (s) { return s.character_id !== null; }).length;
 
+  // 평균 전투력은 점수를 아는 인원만으로 낸다. 임시 캐릭터와 조회에 실패한 캐릭터는
+  // 0으로 세면 평균이 실제보다 낮게 나와 포스가 약해 보인다.
+  var known = 0;
+  var sum = 0;
+  slots.forEach(function (s) {
+    if (s.character_id === null) return;
+    var c = FC.byId(FC.state.characters, s.character_id);
+    if (!c || !c.atul || Number(c.atul) <= 0) return;
+    known++;
+    sum += Number(c.atul);
+  });
+  var avgText = known ? '평균 ' + FC.atulShort(Math.round(sum / known))
+                        + (known < filled ? ' (' + known + '명)' : '')
+                      : '';
+
   var when = (force.day_of_week || '') + (force.start_time ? ' ' + force.start_time : '');
   var head = FC.el('div', { class: 'fc-force-head' }, [
     FC.el('span', { class: 'fc-force-no', text: force.force_no + '포스' }),
     FC.el('span', { class: 'fc-force-when', text: when || '시간 미정' }),
     FC.el('span', { class: 'fc-force-count', text: filled + '/10' }),
+    avgText ? FC.el('span', { class: 'fc-force-avg', text: avgText }) : null,
     FC.el('span', { class: 'fc-spacer' }),
     FC.el('button', { class: 'fc-icon-btn fc-force-edit', 'data-force-id': force.id, type: 'button', text: '수정' }),
     FC.el('button', { class: 'fc-icon-btn fc-force-del', 'data-force-id': force.id, type: 'button', text: '삭제' })
