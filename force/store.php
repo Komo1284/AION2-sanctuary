@@ -176,7 +176,12 @@ function fc_refresh_all_atul(PDO $pdo, $lookup, $sleepMs = 300) {
         $first = false;
 
         $got = is_callable($lookup) ? call_user_func($lookup, $row['char_name']) : null;
-        if (!is_array($got)) {
+        // 배열이 왔다고 무조건 성공은 아니다. 외부 API가 200을 주면서
+        // profile.combatPower가 비어 있는 경우 atul 키가 없거나 0으로 온다 —
+        // 그런 응답으로 기존의 좋은 값을 0으로 덮어쓰면 이 함수가 막으려던 사고가
+        // 그대로 재현된다. atul이 1 이상일 때만 성공으로 친다.
+        $atulValid = is_array($got) && isset($got['atul']) && $got['atul'] !== null && (int)$got['atul'] > 0;
+        if (!$atulValid) {
             $failed++;
             continue;
         }

@@ -547,6 +547,59 @@ t_eq($refreshResult['updated'], $expectUpdated, 'updated 개수가 실제 갱신
 t_eq($refreshResult['failed'], $expectFailed, 'failed 개수가 실제 갱신 실패 건수와 일치한다');
 t_eq($refreshResult['skipped'], $expectSkipped, 'skipped 개수가 실제 건너뛴 임시 캐릭터 수와 일치한다');
 
+t_section('전투력 갱신 — combatPower 0/누락 방어');
+
+// "200 OK + profile.combatPower가 비어 있음" 같은 응답은 배열이지만 신뢰할 수 없다.
+// fc_refresh_all_atul()이 "배열이면 성공"으로만 보면 기존의 좋은 값을 0으로 덮어써 버린다.
+// 이 섹션도 앞선 섹션이 남긴 zzTest_를 먼저 치워 전체 카운트를 예측 가능하게 만든다.
+fc_cleanup_test_data($pdo);
+
+$zeroPreReal = (int)$pdo->query("SELECT COUNT(*) FROM fc_characters WHERE is_placeholder = 0")->fetchColumn();
+$zeroPrePh   = (int)$pdo->query("SELECT COUNT(*) FROM fc_characters WHERE is_placeholder = 1")->fetchColumn();
+
+$zeroPid = fc_create_player($pdo, 'zzTest_제로방어본캐', ['zzTest_제로방어무키', 'zzTest_제로방어정상']);
+$zeroRowsAll = $pdo->query("SELECT id, char_name FROM fc_characters WHERE player_id = $zeroPid")->fetchAll();
+$zeroIdByName = [];
+foreach ($zeroRowsAll as $r) { $zeroIdByName[$r['char_name']] = (int)$r['id']; }
+$zeroId  = $zeroIdByName['zzTest_제로방어본캐'];  // atul=>0 인 배열 (200 + combatPower 빈 값 재현)
+$noKeyId = $zeroIdByName['zzTest_제로방어무키'];  // atul 키가 아예 없는 배열
+$posId   = $zeroIdByName['zzTest_제로방어정상'];  // 정상값(1 이상) — 과잉 차단 여부 확인용
+
+$pdo->prepare("UPDATE fc_characters SET char_class = ?, atul_score = ?, item_level = ? WHERE id = ?")
+    ->execute(['수호성', 77777, 4100, $zeroId]);
+$pdo->prepare("UPDATE fc_characters SET char_class = ?, atul_score = ?, item_level = ? WHERE id = ?")
+    ->execute(['궁성', 88888, 4200, $noKeyId]);
+$pdo->prepare("UPDATE fc_characters SET char_class = ?, atul_score = ?, item_level = ? WHERE id = ?")
+    ->execute(['마도성', 1, 3000, $posId]);
+
+$zero_lookup = function ($name) {
+    if ($name === 'zzTest_제로방어본캐') return ['class' => '검성', 'atul' => 0, 'item_level' => 3500];
+    if ($name === 'zzTest_제로방어무키') return ['class' => '검성', 'item_level' => 3500]; // atul 키 자체가 없음
+    if ($name === 'zzTest_제로방어정상') return ['class' => '살성', 'atul' => 2, 'item_level' => 3600];
+    return null;
+};
+
+$zeroResult = fc_refresh_all_atul($pdo, $zero_lookup, 0);
+
+$zeroRow = $pdo->query("SELECT char_class, atul_score, item_level FROM fc_characters WHERE id = $zeroId")->fetch();
+t_eq((int)$zeroRow['atul_score'], 77777, 'atul=>0 응답에도 기존 atul_score가 그대로 유지된다');
+t_eq($zeroRow['char_class'], '수호성', 'atul=>0 응답이면 char_class 등 다른 필드도 갱신되지 않는다 (실패로 취급)');
+
+$noKeyRow = $pdo->query("SELECT char_class, atul_score FROM fc_characters WHERE id = $noKeyId")->fetch();
+t_eq((int)$noKeyRow['atul_score'], 88888, 'atul 키가 없는 응답에도 기존 atul_score가 그대로 유지된다');
+t_eq($noKeyRow['char_class'], '궁성', 'atul 키가 없는 응답이면 char_class도 갱신되지 않는다');
+
+$posRow = $pdo->query("SELECT char_class, atul_score, item_level FROM fc_characters WHERE id = $posId")->fetch();
+t_eq((int)$posRow['atul_score'], 2, '정상값(1 이상) 응답은 여전히 갱신된다 — 과잉 차단이 아니다');
+t_eq($posRow['char_class'], '살성', '정상값 응답이면 char_class도 함께 갱신된다');
+
+$zeroExpectUpdated = 1;
+$zeroExpectFailed  = ($zeroPreReal + 3) - $zeroExpectUpdated; // 우리가 만든 실캐릭 3명(성공1+실패2) + 기존 실캐릭은 전부 실패
+$zeroExpectSkipped = $zeroPrePh;
+t_eq($zeroResult['updated'], $zeroExpectUpdated, 'updated 개수 — 정상값 1건만 성공으로 집계된다');
+t_eq($zeroResult['failed'], $zeroExpectFailed, 'failed 개수 — atul<=0/키없음이 실패로 집계된다 (updated가 아니다)');
+t_eq($zeroResult['skipped'], $zeroExpectSkipped, 'skipped 개수는 임시 캐릭터 수와 일치한다');
+
 fc_cleanup_test_data($pdo);
 
 exit(t_summary());
