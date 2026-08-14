@@ -16,6 +16,16 @@ FC.classColor = function (cls) {
   return CLASS_COLORS[cls] || '#4a5a78';
 };
 
+// 전투력을 K 단위로 줄여 표시한다 (491,929 → "491K").
+// 뒷 세 자리는 버린다 — 반올림하면 실제보다 높아 보여 오해를 부른다.
+// 값이 없거나 0이면 '—'. 1,000 미만은 K로 줄이면 "0K"가 되므로 숫자를 그대로 쓴다.
+FC.atulShort = function (atul) {
+  var n = Number(atul);
+  if (!atul || !isFinite(n) || n <= 0) return '—';
+  if (n < 1000) return String(Math.floor(n));
+  return Math.floor(n / 1000) + 'K';
+};
+
 FC.el = function (tag, attrs, children) {
   var node = document.createElement(tag);
   attrs = attrs || {};
@@ -129,7 +139,7 @@ FC.renderRoster = function () {
       FC.el('span', { class: 'fc-dot', style: 'background:' + FC.classColor(main.class) }),
       FC.el('span', { class: 'fc-roster-name', text: main.name }),
       FC.el('span', { class: 'fc-roster-meta',
-        text: (main.atul ? main.atul.toLocaleString() : '—') + (subCount > 0 ? ' · 부캐 ' + subCount : '') }),
+        text: FC.atulShort(main.atul) + (subCount > 0 ? ' · 부캐 ' + subCount : '') }),
       FC.el('span', { class: 'fc-badge' + (placed === 0 ? ' is-zero' : ''), text: String(placed) })
     ]);
     list.appendChild(card);
@@ -254,7 +264,7 @@ FC.renderSlot = function (slot, dupIds) {
     metaText = '미정';
   } else {
     var clsText = c.class || '직업?';
-    var atulText = c.atul ? Number(c.atul).toLocaleString() : '—';
+    var atulText = FC.atulShort(c.atul);
     metaText = clsText + ' · ' + atulText;
   }
 
@@ -482,7 +492,7 @@ FC.openRoster = function () {
         FC.el('span', { class: 'fc-manage-name', text: (Number(c.is_main) === 1 ? '⭐ ' : '') + c.name }),
         FC.el('span', { class: 'fc-manage-meta',
           text: isPh ? '임시 · 미정'
-                     : ((c.class || '직업?') + ' · ' + (c.atul ? c.atul.toLocaleString() : '점수?')) })
+                     : ((c.class || '직업?') + ' · ' + (c.atul ? FC.atulShort(c.atul) : '점수?')) })
       ]);
       // 임시 캐릭터는 아툴 갱신 대신 "확정" — 실제 캐릭명을 받아 조회까지 한 번에 한다
       if (isPh) {
@@ -900,7 +910,7 @@ FC.openPopover = function (playerId, anchorEl) {
       FC.el('span', { class: 'fc-dot', style: 'background:' + (isPh ? '#4a5a78' : FC.classColor(c.class)) }),
       FC.el('span', { class: 'fc-pop-name', text: (Number(c.is_main) === 1 ? '⭐ ' : '') + c.name }),
       FC.el('span', { class: 'fc-pop-meta',
-        text: isPh ? '미정' : ((c.class || '직업?') + ' · ' + (c.atul ? c.atul.toLocaleString() : '—')) })
+        text: isPh ? '미정' : ((c.class || '직업?') + ' · ' + FC.atulShort(c.atul)) })
     ]);
     if (placed.length) {
       row.appendChild(FC.el('span', { class: 'fc-pop-tag', text: placed.join(',') + '포스' }));
