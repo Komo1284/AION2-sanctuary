@@ -887,7 +887,6 @@ FC.playerConflict = function (forceId, characterId, excludeSlotId) {
     if (Number(s.force_id) !== Number(forceId)) return;
     if (s.character_id === null) return;
     if (Number(s.id) === Number(excludeSlotId)) return;
-    if (Number(s.character_id) === Number(characterId)) return;
     var sitting = FC.byId(FC.state.characters, s.character_id);
     if (sitting && Number(sitting.player_id) === Number(moving.player_id)) found = sitting.name;
   });

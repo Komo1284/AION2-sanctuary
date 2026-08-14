@@ -265,18 +265,22 @@ fc_assign_slot($pdo, (int)$slots[0]['id'], $cMain);
 $got = $pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$slots[0]['id'])->fetchColumn();
 t_eq((int)$got, $cMain, '배치 후 조회하면 캐릭터가 남아 있다');
 
-fc_assign_slot($pdo, (int)$slots[5]['id'], $cSub);
+// 같은 포스에는 같은 사람이 두 번 들어갈 수 없으므로 교체 상대는 다른 플레이어여야 한다
+$pidNb = fc_create_player($pdo, 'zzTest_이웃');
+$cNb   = (int)$pdo->query("SELECT id FROM fc_characters WHERE player_id = $pidNb")->fetchColumn();
+
+fc_assign_slot($pdo, (int)$slots[5]['id'], $cNb);
 fc_swap_slots($pdo, (int)$slots[0]['id'], (int)$slots[5]['id']);
 $a = (int)$pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$slots[0]['id'])->fetchColumn();
 $b = (int)$pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$slots[5]['id'])->fetchColumn();
-t_eq($a, $cSub, 'swap 후 A슬롯에 B의 캐릭터가 있다');
+t_eq($a, $cNb, 'swap 후 A슬롯에 B의 캐릭터가 있다');
 t_eq($b, $cMain, 'swap 후 B슬롯에 A의 캐릭터가 있다');
 
 fc_swap_slots($pdo, (int)$slots[1]['id'], (int)$slots[0]['id']);
 $emptyNow = $pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$slots[0]['id'])->fetchColumn();
 $movedTo  = (int)$pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$slots[1]['id'])->fetchColumn();
 t_ok($emptyNow === null, '빈 슬롯과 swap하면 원래 자리가 빈다');
-t_eq($movedTo, $cSub, '빈 슬롯과 swap하면 캐릭터가 그 자리로 옮겨간다');
+t_eq($movedTo, $cNb, '빈 슬롯과 swap하면 캐릭터가 그 자리로 옮겨간다');
 
 fc_assign_slot($pdo, (int)$slots[1]['id'], null);
 $cleared = $pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$slots[1]['id'])->fetchColumn();
@@ -284,6 +288,7 @@ t_ok($cleared === null, 'character_id에 null을 넣으면 슬롯이 비워진�
 
 t_section('캐릭터 삭제 시 참조 정리');
 
+fc_assign_slot($pdo, (int)$slots[5]['id'], null);   // $cMain을 비워 같은 포스 중복을 피한다
 fc_assign_slot($pdo, (int)$slots[2]['id'], $cMain);
 fc_delete_character($pdo, $cMain);
 $after = $pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$slots[2]['id'])->fetchColumn();

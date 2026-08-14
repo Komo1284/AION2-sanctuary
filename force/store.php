@@ -351,9 +351,9 @@ function fc_force_player_conflict(PDO $pdo, $forceId, $characterId, $excludeSlot
         "SELECT c.char_name
          FROM fc_slots s
          JOIN fc_characters c ON c.id = s.character_id
-         WHERE s.force_id = ? AND s.id <> ? AND c.player_id = ? AND c.id <> ?
+         WHERE s.force_id = ? AND s.id <> ? AND c.player_id = ?
          LIMIT 1");
-    $st2->execute([(int)$forceId, (int)$excludeSlotId, (int)$playerId, (int)$characterId]);
+    $st2->execute([(int)$forceId, (int)$excludeSlotId, (int)$playerId]);
     $name = $st2->fetchColumn();
     return $name === false ? null : $name;
 }
