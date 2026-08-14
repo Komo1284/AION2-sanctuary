@@ -166,11 +166,18 @@ FC.renderTabs = function () {
   });
   host.appendChild(FC.el('button', { class: 'fc-tab fc-tab-add', id: 'fc-add-raid', type: 'button', text: '+' }));
 
+  host.appendChild(FC.el('span', { class: 'fc-spacer' }));
   if (FC.activeRaidId) {
-    host.appendChild(FC.el('span', { class: 'fc-spacer' }));
     host.appendChild(FC.el('button', { class: 'fc-btn', id: 'fc-add-force', type: 'button', text: '+ 포스 추가' }));
     host.appendChild(FC.el('button', { class: 'fc-btn', id: 'fc-edit-raid', type: 'button', text: '레이드 수정' }));
   }
+  // 전체 갱신은 특정 레이드와 무관하므로 레이드를 안 골랐을 때도 보인다.
+  // 갱신이 도는 중에는 진행 상황을 라벨에 찍고 다시 눌리지 않게 잠근다.
+  host.appendChild(FC.el('button', {
+    class: 'fc-btn', id: 'fc-refresh-all', type: 'button',
+    text: FC.refreshAllLabel || '전체 갱신',
+    disabled: FC.refreshAllRunning ? 'disabled' : null
+  }));
 };
 
 // ── 보드 ────────────────────────────────────────────────────
@@ -716,6 +723,7 @@ FC.bindGlobalEvents = function () {
     if (t.id === 'fc-add-raid' || t.id === 'fc-add-raid-big') { FC.openRaidForm(null); return; }
     if (t.id === 'fc-edit-raid') { FC.openRaidForm(FC.byId(FC.state.raids, FC.activeRaidId)); return; }
     if (t.id === 'fc-add-force' || t.id === 'fc-add-force-big') { FC.openForceForm(null); return; }
+    if (t.id === 'fc-refresh-all') { FC.refreshAllAtul(); return; }
 
     if (t.classList.contains('fc-tab') && t.hasAttribute('data-raid-id')) {
       FC.activeRaidId = Number(t.getAttribute('data-raid-id'));
@@ -901,6 +909,53 @@ FC.playerConflict = function (forceId, characterId, excludeSlotId) {
     if (sitting && Number(sitting.player_id) === Number(moving.player_id)) found = sitting.name;
   });
   return found;
+};
+
+FC.refreshAllRunning = false;
+FC.refreshAllLabel = null;
+
+// 명단 전체의 전투력을 다시 조회한다. 한 번에 다 돌면 웹 요청의 PHP 실행시간
+// 제한(30초)에 걸리므로 서버가 offset/limit로 잘라주는 것을 이어서 부른다.
+// 중간에 실패해도 그때까지 갱신된 캐릭터는 서버에 이미 저장되어 있다.
+FC.refreshAllAtul = function () {
+  if (FC.refreshAllRunning) return;
+  FC.refreshAllRunning = true;
+
+  var acc = { updated: 0, failed: 0, skipped: 0 };
+
+  var setLabel = function (text) {
+    FC.refreshAllLabel = text;
+    var btn = document.getElementById('fc-refresh-all');
+    if (btn) { btn.textContent = text; btn.disabled = true; }
+  };
+
+  var finish = function (err) {
+    FC.refreshAllRunning = false;
+    FC.refreshAllLabel = null;
+    FC.refresh().catch(function () { FC.state.revision = -1; }).then(function () {
+      if (err) {
+        FC.toast('갱신이 중단됐어요 — ' + FC.errorText(err)
+                 + ' (여기까지 ' + acc.updated + '건은 저장됨)', 'err');
+      } else {
+        FC.toast('갱신 ' + acc.updated + ' · 실패 ' + acc.failed + ' · 건너뜀 ' + acc.skipped, 'ok');
+      }
+    });
+  };
+
+  var step = function (offset) {
+    return FC.api('atul.refresh_all', { offset: offset, limit: 15 }).then(function (r) {
+      acc.updated += r.updated;
+      acc.failed  += r.failed;
+      acc.skipped += r.skipped;
+      var seen = Math.min(offset + 15, r.total);
+      setLabel('갱신 중 ' + seen + '/' + r.total);
+      if (r.done || r.next_offset === null) { finish(null); return; }
+      return step(r.next_offset);
+    });
+  };
+
+  setLabel('갱신 중…');
+  step(0).catch(function (err) { finish(err); });
 };
 
 FC.conflictText = function (name) {

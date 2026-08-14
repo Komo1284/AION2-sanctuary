@@ -158,8 +158,20 @@ function fc_update_character_lookup_result(PDO $pdo, $id, array $info) {
 // 둔다 — 외부 API 점검·순단·개명 등으로 흔히 일어나는데, 그때마다 값을 비우면 하루 만에
 // 전체 명단의 전투력이 날아갈 수 있다. 임시 캐릭터(is_placeholder=1)는 외부 API에 없는
 // 이름이므로 애초에 조회하지 않는다.
-function fc_refresh_all_atul(PDO $pdo, $lookup, $sleepMs = 300) {
-    $rows = $pdo->query("SELECT id, char_name, is_placeholder FROM fc_characters ORDER BY id")->fetchAll();
+// 갱신 대상 캐릭터의 총 개수. 임시 캐릭터도 포함한 전체 행 수다 — 브라우저가 몇 번에
+// 나눠 부를지 계산하는 데 쓰므로, 건너뛸 임시 캐릭터도 슬라이스 자리를 차지한다.
+function fc_atul_target_count(PDO $pdo) {
+    return (int)$pdo->query("SELECT COUNT(*) FROM fc_characters")->fetchColumn();
+}
+
+// $offset/$limit 로 일부만 갱신할 수 있다. 웹에서 부를 때 PHP 실행시간 제한(30초)에
+// 걸리지 않도록 브라우저가 나눠서 여러 번 호출한다. 크론은 인자를 주지 않아 전체를 돈다.
+function fc_refresh_all_atul(PDO $pdo, $lookup, $sleepMs = 300, $offset = 0, $limit = 0) {
+    $sql = "SELECT id, char_name, is_placeholder FROM fc_characters ORDER BY id";
+    if ($limit > 0) {
+        $sql .= " LIMIT " . (int)$limit . " OFFSET " . (int)$offset;
+    }
+    $rows = $pdo->query($sql)->fetchAll();
 
     $updated = 0;
     $failed  = 0;

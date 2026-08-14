@@ -686,6 +686,59 @@ try { fc_swap_slots($pdo, (int)$pcS1[0]['id'], (int)$pcS1[5]['id']); }
 catch (RuntimeException $e) { $sameForceOk = false; }
 t_ok($sameForceOk, '같은 포스 안에서 자리만 바꾸는 것은 허용된다');
 
+t_section('전체 갱신 나눠 돌리기');
+
+$btPid = fc_create_player($pdo, 'zzTest_배치본캐', ['zzTest_배치부캐1', 'zzTest_배치부캐2']);
+fc_add_character($pdo, $btPid, 'zzTest_배치임시', null, true);
+
+$btTotal = fc_atul_target_count($pdo);
+t_ok($btTotal >= 4, 'fc_atul_target_count가 전체 캐릭터 수를 돌려준다');
+
+// 조회된 이름을 전부 기록해 슬라이스가 겹치거나 빠뜨리는지 본다
+$btSeen = [];
+$btLookup = function ($name) use (&$btSeen) {
+    $btSeen[] = $name;
+    return ['class' => '검성', 'atul' => 12345, 'item_level' => 100];
+};
+
+$btRevBefore = fc_revision($pdo);
+$btA = fc_refresh_all_atul($pdo, $btLookup, 0, 0, 2);
+$btB = fc_refresh_all_atul($pdo, $btLookup, 0, 2, 2);
+
+t_eq(count($btSeen), count(array_unique($btSeen)), '슬라이스가 같은 캐릭터를 두 번 조회하지 않는다');
+t_ok(($btA['updated'] + $btA['failed'] + $btA['skipped']) === 2, '첫 배치는 정확히 2건을 처리한다');
+t_ok(($btB['updated'] + $btB['failed'] + $btB['skipped']) === 2, '두 번째 배치도 정확히 2건을 처리한다');
+t_ok(fc_revision($pdo) > $btRevBefore, '배치마다 revision이 올라간다');
+
+// offset/limit를 주지 않으면 크론처럼 전체를 돈다
+$btSeen = [];
+fc_refresh_all_atul($pdo, $btLookup, 0);
+t_eq(count($btSeen), $btTotal - (int)$pdo->query("SELECT COUNT(*) FROM fc_characters WHERE is_placeholder = 1")->fetchColumn(),
+     'offset/limit 없이 부르면 임시 캐릭터를 뺀 전원을 조회한다');
+
+// 전체를 2건씩 끝까지 돌면 임시 캐릭터를 뺀 전원이 정확히 한 번씩 조회된다
+$btSeen = [];
+for ($off = 0; $off < $btTotal; $off += 2) {
+    fc_refresh_all_atul($pdo, $btLookup, 0, $off, 2);
+}
+$btReal = (int)$pdo->query("SELECT COUNT(*) FROM fc_characters WHERE is_placeholder = 0")->fetchColumn();
+t_eq(count($btSeen), $btReal, '끝까지 나눠 돌면 실제 캐릭터 전원이 조회된다');
+t_eq(count($btSeen), count(array_unique($btSeen)), '끝까지 나눠 돌아도 중복 조회가 없다');
+
+t_section('전체 갱신 API');
+
+$raRes = $call(['action' => 'atul.refresh_all', 'offset' => 0, 'limit' => 2]);
+t_ok(isset($raRes['total']) && isset($raRes['done']), 'atul.refresh_all이 total과 done을 돌려준다');
+t_eq($raRes['total'], $btTotal, 'total이 전체 캐릭터 수와 같다');
+t_ok($raRes['next_offset'] === 2 || $raRes['done'] === true, '다음 offset을 알려주거나 done을 세운다');
+
+$raLast = $call(['action' => 'atul.refresh_all', 'offset' => max(0, $btTotal - 1), 'limit' => 15]);
+t_ok($raLast['done'] === true, '마지막 배치는 done이 true다');
+t_ok($raLast['next_offset'] === null, '마지막 배치는 next_offset이 null이다');
+
+$raClamp = $call(['action' => 'atul.refresh_all', 'offset' => -5, 'limit' => 999]);
+t_ok(isset($raClamp['total']), '비정상 offset/limit도 보정되어 정상 응답한다');
+
 fc_cleanup_test_data($pdo);
 
 exit(t_summary());

@@ -149,6 +149,27 @@ function fc_api_dispatch(PDO $pdo, array $req, $lookup) {
             fc_swap_slots($pdo, $a, $b);
             return ['slot_id_a' => $a, 'slot_id_b' => $b];
 
+        // 브라우저가 offset/limit로 나눠서 여러 번 부른다. 한 번에 전부 돌면
+        // 웹 요청의 PHP 실행시간 제한(30초)에 걸린다.
+        case 'atul.refresh_all':
+            $offset = fc_req_int($req, 'offset');
+            $limit  = fc_req_int($req, 'limit');
+            if ($offset < 0) $offset = 0;
+            if ($limit <= 0 || $limit > 30) $limit = 15;
+            $total = fc_atul_target_count($pdo);
+            // 수동 갱신은 사람이 기다리므로 간격을 줄인다. 외부 API 부담은
+            // 한 번에 최대 30건이라 크론(300ms)보다 짧아도 괜찮다.
+            $res = fc_refresh_all_atul($pdo, $lookup, 80, $offset, $limit);
+            $next = $offset + $limit;
+            return [
+                'updated'     => $res['updated'],
+                'failed'      => $res['failed'],
+                'skipped'     => $res['skipped'],
+                'total'       => $total,
+                'next_offset' => $next < $total ? $next : null,
+                'done'        => $next >= $total,
+            ];
+
         case 'atul.refresh':
             $cid = fc_req_int($req, 'character_id');
             if ($cid <= 0) throw new RuntimeException('bad_request');
