@@ -380,6 +380,9 @@ var ERROR_TEXT = {
 
 FC.errorText = function (err) {
   var msg = err && err.message ? err.message : '';
+  if (msg.indexOf('player_conflict:') === 0) {
+    return '같은 사람의 캐릭터가 이미 이 포스에 있어요 — ' + msg.slice('player_conflict:'.length);
+  }
   if (msg.indexOf('duplicate_name') === 0) {
     var who = msg.slice('duplicate_name:'.length) || '';
     return '이미 등록된 캐릭명이에요' + (who ? ' — ' + who : '');
@@ -869,6 +872,32 @@ FC.bindGlobalEvents = function () {
 FC.drag = null;
 FC.openPopoverPlayerId = null;
 
+// 한 사람은 같은 포스에 두 번 들어갈 수 없다 — 동시에 두 캐릭터를 조종할 수 없기 때문이다.
+// 본캐/부캐/임시 캐릭터를 구분하지 않고 같은 player_id면 전부 충돌로 본다.
+// 서버 force/store.php 의 fc_force_player_conflict() 와 같은 규칙이다. 서버가 최종
+// 권한이고, 이 검사는 드롭 전에 막아 카드가 들어갔다 되돌아오는 깜빡임을 없애는 용도다.
+// excludeSlotId: 이번 조작으로 비워질 슬롯. 그 자리 캐릭터는 검사에서 뺀다.
+// 충돌하는 캐릭터명을 돌려주고, 없으면 null.
+FC.playerConflict = function (forceId, characterId, excludeSlotId) {
+  var moving = FC.byId(FC.state.characters, characterId);
+  if (!moving) return null;
+  var found = null;
+  (FC.state.slots || []).forEach(function (s) {
+    if (found) return;
+    if (Number(s.force_id) !== Number(forceId)) return;
+    if (s.character_id === null) return;
+    if (Number(s.id) === Number(excludeSlotId)) return;
+    if (Number(s.character_id) === Number(characterId)) return;
+    var sitting = FC.byId(FC.state.characters, s.character_id);
+    if (sitting && Number(sitting.player_id) === Number(moving.player_id)) found = sitting.name;
+  });
+  return found;
+};
+
+FC.conflictText = function (name) {
+  return '같은 사람의 캐릭터가 이미 이 포스에 있어요 — ' + name;
+};
+
 FC.closePopover = function () {
   var pop = document.getElementById('fc-popover');
   pop.hidden = true;
@@ -914,6 +943,22 @@ FC.openPopover = function (playerId, anchorEl) {
   });
 
   pop.appendChild(FC.el('div', { class: 'fc-pop-title', text: (main ? main.name : '') + ' 의 캐릭터' }));
+
+  // 한 사람은 같은 포스에 두 번 들어갈 수 없다. 이 플레이어가 이미 자리를 잡은 포스는
+  // 어느 캐릭터로도 못 넣으므로, 끌어보기 전에 알려준다.
+  var takenNos = [];
+  forcesOfRaid.forEach(function (f) {
+    var mine = (FC.state.slots || []).some(function (s) {
+      if (Number(s.force_id) !== Number(f.id) || s.character_id === null) return false;
+      var sitting = FC.byId(FC.state.characters, s.character_id);
+      return sitting && Number(sitting.player_id) === Number(playerId);
+    });
+    if (mine && takenNos.indexOf(f.force_no) === -1) takenNos.push(f.force_no);
+  });
+  if (takenNos.length) {
+    pop.appendChild(FC.el('div', { class: 'fc-pop-note',
+      text: takenNos.sort(function (a, b) { return a - b; }).join(',') + '포스엔 이미 자리를 잡아서 못 넣어요' }));
+  }
 
   chars.forEach(function (c) {
     var placed = placedByChar[String(c.id)] || [];
@@ -1008,11 +1053,24 @@ FC.dropOnSlot = function (slotId) {
     var from = null;
     (FC.state.slots || []).forEach(function (s) { if (Number(s.id) === Number(drag.fromSlotId)) from = s; });
     if (!from) return;
+
+    // 포스가 다를 때만 구성원이 바뀐다. 서로 상대 슬롯은 비워지므로 검사에서 뺀다.
+    if (Number(from.force_id) !== Number(slot.force_id)) {
+      var clashA = slot.character_id === null ? null
+        : FC.playerConflict(from.force_id, slot.character_id, from.id);
+      var clashB = from.character_id === null ? null
+        : FC.playerConflict(slot.force_id, from.character_id, slot.id);
+      var clash = clashA || clashB;
+      if (clash) { FC.toast(FC.conflictText(clash), 'err'); return; }
+    }
+
     var tmp = slot.character_id;
     slot.character_id = from.character_id;
     from.character_id = tmp;
     call = FC.api('slot.swap', { slot_id_a: drag.fromSlotId, slot_id_b: slotId });
   } else {
+    var clashNew = FC.playerConflict(slot.force_id, drag.characterId, slot.id);
+    if (clashNew) { FC.toast(FC.conflictText(clashNew), 'err'); return; }
     slot.character_id = drag.characterId;
     call = FC.api('slot.assign', { slot_id: slotId, character_id: drag.characterId });
   }

@@ -337,8 +337,45 @@ function fc_slot_ids(PDO $pdo, $forceId) {
     return $st->fetchAll();
 }
 
+// 한 사람은 같은 포스에 두 번 들어갈 수 없다 — 동시에 두 캐릭터를 조종할 수 없기 때문이다.
+// 본캐/부캐/임시 캐릭터를 구분하지 않고 같은 player_id면 전부 충돌로 본다.
+// $excludeSlotId: 지금 비워질 예정인 슬롯. 그 자리를 차지한 캐릭터는 검사에서 뺀다.
+// 충돌하는 캐릭터명을 돌려주고, 없으면 null.
+function fc_force_player_conflict(PDO $pdo, $forceId, $characterId, $excludeSlotId = 0) {
+    $st = $pdo->prepare("SELECT player_id FROM fc_characters WHERE id = ?");
+    $st->execute([(int)$characterId]);
+    $playerId = $st->fetchColumn();
+    if ($playerId === false) return null;
+
+    $st2 = $pdo->prepare(
+        "SELECT c.char_name
+         FROM fc_slots s
+         JOIN fc_characters c ON c.id = s.character_id
+         WHERE s.force_id = ? AND s.id <> ? AND c.player_id = ? AND c.id <> ?
+         LIMIT 1");
+    $st2->execute([(int)$forceId, (int)$excludeSlotId, (int)$playerId, (int)$characterId]);
+    $name = $st2->fetchColumn();
+    return $name === false ? null : $name;
+}
+
+function fc_slot_force_id(PDO $pdo, $slotId) {
+    $st = $pdo->prepare("SELECT force_id FROM fc_slots WHERE id = ?");
+    $st->execute([(int)$slotId]);
+    $fid = $st->fetchColumn();
+    return $fid === false ? null : (int)$fid;
+}
+
 function fc_assign_slot(PDO $pdo, $slotId, $characterId) {
     $cid = ($characterId === null || $characterId === '' || (int)$characterId === 0) ? null : (int)$characterId;
+
+    if ($cid !== null) {
+        $forceId = fc_slot_force_id($pdo, $slotId);
+        if ($forceId === null) throw new RuntimeException('slot_not_found');
+        // 대상 슬롯 자신은 어차피 덮어써지므로 검사에서 뺀다
+        $clash = fc_force_player_conflict($pdo, $forceId, $cid, $slotId);
+        if ($clash !== null) throw new RuntimeException('player_conflict:' . $clash);
+    }
+
     $pdo->prepare("UPDATE fc_slots SET character_id = ? WHERE id = ?")->execute([$cid, $slotId]);
     fc_bump_revision($pdo);
 }
@@ -346,13 +383,33 @@ function fc_assign_slot(PDO $pdo, $slotId, $characterId) {
 // 빈 슬롯과의 교체도 지원한다 — 그 경우 사실상 이동이 된다.
 function fc_swap_slots(PDO $pdo, $slotIdA, $slotIdB) {
     if ((int)$slotIdA === (int)$slotIdB) return;
-    $st = $pdo->prepare("SELECT id, character_id FROM fc_slots WHERE id IN (?, ?)");
+    $st = $pdo->prepare("SELECT id, force_id, character_id FROM fc_slots WHERE id IN (?, ?)");
     $st->execute([$slotIdA, $slotIdB]);
     $rows = $st->fetchAll();
     if (count($rows) !== 2) throw new RuntimeException('slot_not_found');
 
     $byId = [];
-    foreach ($rows as $r) { $byId[(int)$r['id']] = $r['character_id']; }
+    $forceOf = [];
+    foreach ($rows as $r) {
+        $byId[(int)$r['id']] = $r['character_id'];
+        $forceOf[(int)$r['id']] = (int)$r['force_id'];
+    }
+
+    // 같은 포스 안에서 자리만 바꾸는 경우는 구성원이 그대로라 검사할 게 없다.
+    // 포스가 다르면 각 캐릭터가 옮겨갈 포스에 같은 플레이어가 이미 있는지 본다.
+    // 상대 슬롯은 서로 비워지므로 검사에서 뺀다.
+    if ($forceOf[(int)$slotIdA] !== $forceOf[(int)$slotIdB]) {
+        $movingToA = $byId[(int)$slotIdB];
+        $movingToB = $byId[(int)$slotIdA];
+        if ($movingToA !== null) {
+            $clash = fc_force_player_conflict($pdo, $forceOf[(int)$slotIdA], (int)$movingToA, $slotIdA);
+            if ($clash !== null) throw new RuntimeException('player_conflict:' . $clash);
+        }
+        if ($movingToB !== null) {
+            $clash = fc_force_player_conflict($pdo, $forceOf[(int)$slotIdB], (int)$movingToB, $slotIdB);
+            if ($clash !== null) throw new RuntimeException('player_conflict:' . $clash);
+        }
+    }
 
     $upd = $pdo->prepare("UPDATE fc_slots SET character_id = ? WHERE id = ?");
     $upd->execute([$byId[(int)$slotIdB], $slotIdA]);

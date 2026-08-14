@@ -600,6 +600,76 @@ t_eq($zeroResult['updated'], $zeroExpectUpdated, 'updated 개수 — 정상값 1
 t_eq($zeroResult['failed'], $zeroExpectFailed, 'failed 개수 — atul<=0/키없음이 실패로 집계된다 (updated가 아니다)');
 t_eq($zeroResult['skipped'], $zeroExpectSkipped, 'skipped 개수는 임시 캐릭터 수와 일치한다');
 
+t_section('같은 플레이어의 같은 포스 중복 배치 차단');
+
+$pcPid   = fc_create_player($pdo, 'zzTest_충돌본캐', ['zzTest_충돌부캐']);
+$pcChars = $pdo->query("SELECT id FROM fc_characters WHERE player_id = $pcPid ORDER BY sort_order")
+                ->fetchAll(PDO::FETCH_COLUMN);
+$pcMain  = (int)$pcChars[0];
+$pcSub   = (int)$pcChars[1];
+$pcPh    = fc_add_character($pdo, $pcPid, 'zzTest_충돌임시', null, true);
+
+$pcOtherPid  = fc_create_player($pdo, 'zzTest_충돌남');
+$pcOtherChar = (int)$pdo->query("SELECT id FROM fc_characters WHERE player_id = $pcOtherPid")->fetchColumn();
+
+$pcRaid  = fc_create_raid($pdo, 'zzTest_충돌레이드');
+$pcF1    = fc_create_force($pdo, $pcRaid, '토', '20:00', '');
+$pcF2    = fc_create_force($pdo, $pcRaid, '일', '20:00', '');
+$pcS1    = fc_slot_ids($pdo, $pcF1);
+$pcS2    = fc_slot_ids($pdo, $pcF2);
+
+fc_assign_slot($pdo, (int)$pcS1[0]['id'], $pcMain);
+t_ok(true, '첫 캐릭터는 정상 배치된다');
+
+$blocked = '';
+try { fc_assign_slot($pdo, (int)$pcS1[1]['id'], $pcSub); }
+catch (RuntimeException $e) { $blocked = $e->getMessage(); }
+t_ok(strpos($blocked, 'player_conflict:') === 0, '같은 플레이어의 부캐를 같은 포스에 넣으면 차단된다');
+t_ok(strpos($blocked, 'zzTest_충돌본캐') !== false, '차단 메시지에 이미 앉아 있는 캐릭터명이 담긴다');
+t_ok($pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$pcS1[1]['id'])->fetchColumn() === null,
+     '차단된 슬롯은 비어 있는 채로 남는다');
+
+$blockedPh = '';
+try { fc_assign_slot($pdo, (int)$pcS1[2]['id'], $pcPh); }
+catch (RuntimeException $e) { $blockedPh = $e->getMessage(); }
+t_ok(strpos($blockedPh, 'player_conflict:') === 0, '임시 캐릭터도 같은 규칙으로 차단된다');
+
+fc_assign_slot($pdo, (int)$pcS1[3]['id'], $pcOtherChar);
+t_eq((int)$pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$pcS1[3]['id'])->fetchColumn(),
+     $pcOtherChar, '다른 플레이어는 같은 포스에 정상 배치된다');
+
+fc_assign_slot($pdo, (int)$pcS2[0]['id'], $pcSub);
+t_eq((int)$pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$pcS2[0]['id'])->fetchColumn(),
+     $pcSub, '다른 포스에는 같은 플레이어의 부캐가 들어간다');
+
+fc_assign_slot($pdo, (int)$pcS1[0]['id'], $pcSub);
+t_eq((int)$pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$pcS1[0]['id'])->fetchColumn(),
+     $pcSub, '이미 그 플레이어가 앉은 자리를 같은 플레이어 캐릭터로 교체하는 것은 허용된다');
+fc_assign_slot($pdo, (int)$pcS1[0]['id'], $pcMain);
+
+t_section('자리 교체 시 중복 차단');
+
+// 1포스에 본캐, 2포스에 부캐가 있는 상태에서 두 자리를 맞바꾸는 것은 허용된다
+$swapOk = true;
+try { fc_swap_slots($pdo, (int)$pcS1[0]['id'], (int)$pcS2[0]['id']); }
+catch (RuntimeException $e) { $swapOk = false; }
+t_ok($swapOk, '같은 플레이어끼리 서로 자리를 맞바꾸는 것은 허용된다');
+fc_swap_slots($pdo, (int)$pcS1[0]['id'], (int)$pcS2[0]['id']);
+
+// 2포스의 부캐를 1포스의 빈칸으로 옮기면 1포스에 본캐가 이미 있으므로 차단
+$swapBlocked = '';
+try { fc_swap_slots($pdo, (int)$pcS2[0]['id'], (int)$pcS1[4]['id']); }
+catch (RuntimeException $e) { $swapBlocked = $e->getMessage(); }
+t_ok(strpos($swapBlocked, 'player_conflict:') === 0, '빈칸으로 옮겨도 같은 포스에 같은 플레이어가 있으면 차단된다');
+t_eq((int)$pdo->query("SELECT character_id FROM fc_slots WHERE id = " . (int)$pcS2[0]['id'])->fetchColumn(),
+     $pcSub, '차단된 교체는 원래 자리를 그대로 둔다');
+
+// 같은 포스 안에서 자리만 바꾸는 것은 구성원이 그대로라 항상 허용
+$sameForceOk = true;
+try { fc_swap_slots($pdo, (int)$pcS1[0]['id'], (int)$pcS1[5]['id']); }
+catch (RuntimeException $e) { $sameForceOk = false; }
+t_ok($sameForceOk, '같은 포스 안에서 자리만 바꾸는 것은 허용된다');
+
 fc_cleanup_test_data($pdo);
 
 exit(t_summary());
