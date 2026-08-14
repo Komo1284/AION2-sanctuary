@@ -756,10 +756,24 @@ t_ok($raLast['next_offset'] === null, '마지막 배치는 next_offset이 null�
 $raClamp = $call(['action' => 'atul.refresh_all', 'offset' => -5, 'limit' => 999]);
 t_ok(isset($raClamp['total']), '비정상 offset/limit도 보정되어 정상 응답한다');
 
-// 전체 대상 갱신으로 덮어쓴 값을 원래대로 되돌린다
+// 전체 대상 갱신으로 덮어쓴 값을 원래대로 되돌린다.
+// 검증 대상은 스냅샷을 뜬 시점에 이미 있던 행들이다 — 테스트가 방금 만든 zzTest_ 캐릭터는
+// 스냅샷에 없고 곧 fc_cleanup_test_data로 지워지므로 여기서 볼 필요가 없다.
 $btRestore();
-$btClobbered = (int)$pdo->query("SELECT COUNT(*) FROM fc_characters WHERE atul_score = 12345")->fetchColumn();
-t_eq($btClobbered, 0, '테스트가 덮어쓴 전투력이 원래 값으로 전부 복구된다');
+
+$btDiff = 0;
+$btCheck = $pdo->prepare("SELECT char_class, atul_score, item_level FROM fc_characters WHERE id = ?");
+foreach ($btSnapshot as $row) {
+    $btCheck->execute([$row['id']]);
+    $now = $btCheck->fetch();
+    if (!$now) continue;   // 테스트 도중 지워진 행은 건너뛴다
+    if ($now['char_class'] !== $row['char_class']
+        || (string)$now['atul_score'] !== (string)$row['atul_score']
+        || (string)$now['item_level'] !== (string)$row['item_level']) {
+        $btDiff++;
+    }
+}
+t_eq($btDiff, 0, '스냅샷 시점에 있던 캐릭터의 직업·전투력·아이템레벨이 전부 원래대로 복구된다');
 
 fc_cleanup_test_data($pdo);
 
