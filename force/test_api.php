@@ -688,6 +688,23 @@ t_ok($sameForceOk, '같은 포스 안에서 자리만 바꾸는 것은 허용된
 
 t_section('전체 갱신 나눠 돌리기');
 
+// !! 주의 !!
+// fc_refresh_all_atul()은 fc_characters 테이블 '전체'를 대상으로 돈다. zzTest_ 접두사로
+// 격리되지 않는다. 그래서 이 블록은 craft/test_calc.php와 같은 방식으로 실행 전에
+// 모든 캐릭터의 조회 결과 컬럼을 스냅샷 떠두고, 끝나면 원래 값으로 되돌린다.
+// 이 안전장치 없이 돌리면 운영 명단의 직업·전투력이 가짜 값으로 덮어써진다(실제로 겪었다).
+$btSnapshot = $pdo->query(
+    "SELECT id, char_class, atul_score, item_level, atul_updated_at FROM fc_characters")->fetchAll();
+$btRestore = function () use ($pdo, $btSnapshot) {
+    $st = $pdo->prepare("UPDATE fc_characters
+                         SET char_class = ?, atul_score = ?, item_level = ?, atul_updated_at = ?
+                         WHERE id = ?");
+    foreach ($btSnapshot as $row) {
+        $st->execute([$row['char_class'], $row['atul_score'], $row['item_level'],
+                      $row['atul_updated_at'], $row['id']]);
+    }
+};
+
 $btPid = fc_create_player($pdo, 'zzTest_배치본캐', ['zzTest_배치부캐1', 'zzTest_배치부캐2']);
 fc_add_character($pdo, $btPid, 'zzTest_배치임시', null, true);
 
@@ -738,6 +755,11 @@ t_ok($raLast['next_offset'] === null, '마지막 배치는 next_offset이 null�
 
 $raClamp = $call(['action' => 'atul.refresh_all', 'offset' => -5, 'limit' => 999]);
 t_ok(isset($raClamp['total']), '비정상 offset/limit도 보정되어 정상 응답한다');
+
+// 전체 대상 갱신으로 덮어쓴 값을 원래대로 되돌린다
+$btRestore();
+$btClobbered = (int)$pdo->query("SELECT COUNT(*) FROM fc_characters WHERE atul_score = 12345")->fetchColumn();
+t_eq($btClobbered, 0, '테스트가 덮어쓴 전투력이 원래 값으로 전부 복구된다');
 
 fc_cleanup_test_data($pdo);
 
