@@ -349,10 +349,14 @@ t_section('state 스냅샷');
 $pid3 = fc_create_player($pdo, 'zzTest_상태본캐', ['zzTest_상태부캐']);
 $rid3 = fc_create_raid($pdo, 'zzTest_상태레이드');
 $fid4 = fc_create_force($pdo, $rid3, '수', '22:00', '메모테스트');
+$fid4b = fc_create_force($pdo, $rid3, '목', '22:00', '');
 $sl   = fc_slot_ids($pdo, $fid4);
+$sl4b = fc_slot_ids($pdo, $fid4b);
 $cid3 = (int)$pdo->query("SELECT id FROM fc_characters WHERE char_name = 'zzTest_상태본캐'")->fetchColumn();
+// 같은 레이드의 서로 다른 포스에 같은 캐릭터를 넣어 중복 경고를 만든다.
+// 한 포스 안에 같은 사람을 두 번 넣는 것은 이제 차단되므로 포스를 나눈다.
 fc_assign_slot($pdo, (int)$sl[0]['id'], $cid3);
-fc_assign_slot($pdo, (int)$sl[6]['id'], $cid3);   // 같은 레이드 같은 포스 안 중복
+fc_assign_slot($pdo, (int)$sl4b[0]['id'], $cid3);
 
 $state = fc_state($pdo);
 t_ok(is_int($state['revision']), 'state에 revision이 정수로 들어 있다');
@@ -375,7 +379,7 @@ $mySlots = array_values(array_filter($state['slots'], function ($s) use ($fid4) 
 }));
 t_eq(count($mySlots), 10, 'state에 그 포스의 슬롯 10개가 담긴다');
 
-t_ok(isset($state['duplicates'][(string)$rid3]), '같은 포스 안 중복도 duplicates에 잡힌다');
+t_ok(isset($state['duplicates'][(string)$rid3]), '같은 레이드의 다른 포스 중복이 duplicates에 잡힌다');
 t_eq((int)$state['duplicates'][(string)$rid3][0]['character_id'], $cid3, '중복된 캐릭터 id가 맞다');
 
 t_section('API 디스패처');
