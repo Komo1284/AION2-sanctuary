@@ -277,7 +277,10 @@ FC.renderSlot = function (slot, dupIds) {
   var isMain = Number(c.is_main) === 1;
   var isPh = Number(c.is_placeholder) === 1;
 
-  var top = [FC.el('span', { class: 'fc-slot-name', text: (isMain ? '⭐' : '') + c.name })];
+  // 본캐는 이름만, 부캐·임시는 오른쪽에 소유자 본캐명. 소유자명이 있느냐 없느냐가
+  // 이미 본캐/부캐를 구분해주므로 별표는 같은 정보를 두 번 말하는 셈이라 빼둔다.
+  // (팝오버와 명단 관리는 소유자명을 안 보여주므로 거기서는 별표를 그대로 쓴다.)
+  var top = [FC.el('span', { class: 'fc-slot-name', text: c.name })];
   if (!isMain && main) {
     top.push(FC.el('span', { class: 'fc-slot-owner', text: main.name }));
   }
