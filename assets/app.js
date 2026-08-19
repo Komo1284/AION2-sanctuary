@@ -81,6 +81,33 @@ FC.dupCharIds = function (raidId) {
   return byRaid.map(function (d) { return Number(d.character_id); });
 };
 
+// ── 보기 방식 (간략 / 상세) ─────────────────────────────────
+// 레이드마다 따로 기억한다. 루드라처럼 오래된 레이드는 전투력을 안 보고 아무나
+// 데려가므로 캐릭명만 있으면 되지만, 신규 레이드는 직업·전투력을 봐야 한다.
+// 서버가 아니라 localStorage에 둔다 — 어디까지나 보는 사람의 취향이고,
+// 저장하자고 스키마와 API를 늘릴 만한 값이 아니다. 저장에 실패해도(사생활 보호
+// 모드 등) 기능 자체는 그대로 동작해야 하므로 전부 try/catch로 감싼다.
+var VIEW_KEY = 'fc.viewModes';
+
+FC.viewModes = (function () {
+  try {
+    var got = JSON.parse(window.localStorage.getItem(VIEW_KEY) || 'null');
+    return (got && typeof got === 'object') ? got : {};
+  } catch (e) { return {}; }
+})();
+
+FC.viewMode = function (raidId) {
+  return FC.viewModes[String(raidId)] === 'compact' ? 'compact' : 'detail';
+};
+
+FC.setViewMode = function (raidId, mode) {
+  if (!raidId) return;
+  FC.viewModes[String(raidId)] = mode === 'compact' ? 'compact' : 'detail';
+  try { window.localStorage.setItem(VIEW_KEY, JSON.stringify(FC.viewModes)); } catch (e) { /* 저장만 포기한다 */ }
+  FC.renderTabs();
+  FC.renderBoard();
+};
+
 // ── 사이드바 ────────────────────────────────────────────────
 // #fc-search 인풋은 뼈대를 처음 만들 때 딱 한 번만 생성하고 이후로는 재사용한다.
 // input 이벤트마다(한글 조합 중에도) 이 함수가 사이드바를 통째로 다시 그리면,
@@ -168,6 +195,13 @@ FC.renderTabs = function () {
 
   host.appendChild(FC.el('span', { class: 'fc-spacer' }));
   if (FC.activeRaidId) {
+    var mode = FC.viewMode(FC.activeRaidId);
+    host.appendChild(FC.el('div', { class: 'fc-viewseg' }, [
+      FC.el('button', { class: 'fc-viewseg-btn' + (mode === 'compact' ? ' is-on' : ''),
+        type: 'button', 'data-view-mode': 'compact', text: '간략' }),
+      FC.el('button', { class: 'fc-viewseg-btn' + (mode === 'detail' ? ' is-on' : ''),
+        type: 'button', 'data-view-mode': 'detail', text: '상세' })
+    ]));
     host.appendChild(FC.el('button', { class: 'fc-btn', id: 'fc-add-force', type: 'button', text: '+ 포스 추가' }));
     host.appendChild(FC.el('button', { class: 'fc-btn', id: 'fc-edit-raid', type: 'button', text: '레이드 수정' }));
   }
@@ -219,15 +253,25 @@ FC.renderBoard = function () {
     return;
   }
 
+  var compact = FC.viewMode(FC.activeRaidId) === 'compact';
   forces.forEach(function (f) {
-    host.appendChild(FC.renderForce(f, dupIds));
+    host.appendChild(compact ? FC.renderForceCompact(f, dupIds) : FC.renderForce(f, dupIds));
   });
 };
 
+// 한 포스의 슬롯을 party_no·slot_no 순으로 돌려준다. 상세/간략 두 렌더러가
+// 같은 순서를 봐야 하므로 한 곳에서만 정렬한다.
+FC.slotsOfForce = function (forceId, party) {
+  return (FC.state.slots || [])
+    .filter(function (s) {
+      return Number(s.force_id) === Number(forceId) &&
+             (party === undefined || Number(s.party_no) === Number(party));
+    })
+    .sort(function (a, b) { return (a.party_no - b.party_no) || (a.slot_no - b.slot_no); });
+};
+
 FC.renderForce = function (force, dupIds) {
-  var slots = (FC.state.slots || []).filter(function (s) {
-    return Number(s.force_id) === Number(force.id);
-  });
+  var slots = FC.slotsOfForce(force.id);
   var filled = slots.filter(function (s) { return s.character_id !== null; }).length;
 
   // 평균 전투력은 점수를 아는 인원만으로 낸다. 임시 캐릭터와 조회에 실패한 캐릭터는
@@ -261,9 +305,9 @@ FC.renderForce = function (force, dupIds) {
     var row = FC.el('div', { class: 'fc-party' }, [
       FC.el('span', { class: 'fc-party-label', text: party + '파티' })
     ]);
-    slots.filter(function (s) { return Number(s.party_no) === party; })
-         .sort(function (a, b) { return a.slot_no - b.slot_no; })
-         .forEach(function (s) { row.appendChild(FC.renderSlot(s, dupIds)); });
+    FC.slotsOfForce(force.id, party).forEach(function (s) {
+      row.appendChild(FC.renderSlot(s, dupIds));
+    });
     body.appendChild(row);
   });
 
@@ -272,43 +316,83 @@ FC.renderForce = function (force, dupIds) {
   return card;
 };
 
-FC.renderSlot = function (slot, dupIds) {
+// 간략 보기 — 엑셀 표처럼 한 포스를 한 줄에 눕힌다.
+// 1파티 5칸 · 구분선 · 2파티 5칸, 각 칸에는 캐릭명만. 직업은 카드 색이,
+// 본캐/부캐와 전투력은 hover 툴팁이 대신 알려주므로 글자로 적지 않는다.
+// 평균 전투력도 빼둔다 — 이 보기를 고르는 레이드는 애초에 점수를 안 본다.
+FC.renderForceCompact = function (force, dupIds) {
+  var slots = FC.slotsOfForce(force.id);
+  var filled = slots.filter(function (s) { return s.character_id !== null; }).length;
+  var when = (force.day_of_week || '') + (force.start_time ? ' ' + force.start_time : '');
+
+  var head = FC.el('div', { class: 'fc-compact-head' }, [
+    FC.el('span', { class: 'fc-force-no', text: force.force_no + '포스' }),
+    FC.el('span', { class: 'fc-force-when', text: when || '미정' }),
+    FC.el('span', { class: 'fc-force-count', text: filled + '/10' })
+  ]);
+
+  var row = FC.el('div', { class: 'fc-compact-row' });
+  [1, 2].forEach(function (party) {
+    if (party === 2) row.appendChild(FC.el('span', { class: 'fc-party-sep' }));
+    var group = FC.el('div', { class: 'fc-compact-party', title: party + '파티' });
+    FC.slotsOfForce(force.id, party).forEach(function (s) {
+      group.appendChild(FC.renderSlot(s, dupIds, true));
+    });
+    row.appendChild(group);
+  });
+
+  var tools = FC.el('div', { class: 'fc-compact-tools' }, [
+    FC.el('button', { class: 'fc-icon-btn fc-force-edit', 'data-force-id': force.id, type: 'button', text: '수정' }),
+    FC.el('button', { class: 'fc-icon-btn fc-force-del', 'data-force-id': force.id, type: 'button', text: '삭제' })
+  ]);
+
+  var card = FC.el('div', { class: 'fc-force is-compact', 'data-force-id': force.id }, [
+    FC.el('div', { class: 'fc-compact-line' }, [head, row, tools])
+  ]);
+  if (force.memo) card.appendChild(FC.el('div', { class: 'fc-force-memo is-compact', text: force.memo }));
+  return card;
+};
+
+// compact=true면 캐릭명 한 줄만 그린다. 지우는 정보(본캐명·직업·전투력)는
+// title 툴팁으로 옮겨서, 궁금할 때 카드에 마우스만 올리면 볼 수 있게 한다.
+FC.renderSlot = function (slot, dupIds, compact) {
+  var base = 'fc-slot' + (compact ? ' is-compact' : '');
   if (slot.character_id === null) {
-    return FC.el('div', { class: 'fc-slot is-empty', 'data-slot-id': slot.id, text: '＋' });
+    return FC.el('div', { class: base + ' is-empty', 'data-slot-id': slot.id, text: '＋' });
   }
   var c = FC.byId(FC.state.characters, slot.character_id);
-  if (!c) return FC.el('div', { class: 'fc-slot is-empty', 'data-slot-id': slot.id, text: '＋' });
+  if (!c) return FC.el('div', { class: base + ' is-empty', 'data-slot-id': slot.id, text: '＋' });
 
   var main = FC.mainOf(c.player_id);
   var isDup = dupIds.indexOf(Number(c.id)) !== -1;
   var isMain = Number(c.is_main) === 1;
   var isPh = Number(c.is_placeholder) === 1;
 
-  // 본캐는 이름만, 부캐·임시는 오른쪽에 소유자 본캐명. 소유자명이 있느냐 없느냐가
-  // 이미 본캐/부캐를 구분해주므로 별표는 같은 정보를 두 번 말하는 셈이라 빼둔다.
-  // (팝오버와 명단 관리는 소유자명을 안 보여주므로 거기서는 별표를 그대로 쓴다.)
-  var top = [FC.el('span', { class: 'fc-slot-name', text: c.name })];
-  if (!isMain && main) {
-    top.push(FC.el('span', { class: 'fc-slot-owner', text: main.name }));
-  }
+  var metaText = isPh ? '미정' : ((c.class || '직업?') + ' · ' + FC.atulShort(c.atul));
 
-  var metaText;
-  if (isPh) {
-    metaText = '미정';
+  var body;
+  if (compact) {
+    body = [FC.el('span', { class: 'fc-slot-name', text: c.name })];
   } else {
-    var clsText = c.class || '직업?';
-    var atulText = FC.atulShort(c.atul);
-    metaText = clsText + ' · ' + atulText;
+    // 본캐는 이름만, 부캐·임시는 오른쪽에 소유자 본캐명. 소유자명이 있느냐 없느냐가
+    // 이미 본캐/부캐를 구분해주므로 별표는 같은 정보를 두 번 말하는 셈이라 빼둔다.
+    // (팝오버와 명단 관리는 소유자명을 안 보여주므로 거기서는 별표를 그대로 쓴다.)
+    var top = [FC.el('span', { class: 'fc-slot-name', text: c.name })];
+    if (!isMain && main) {
+      top.push(FC.el('span', { class: 'fc-slot-owner', text: main.name }));
+    }
+    body = [
+      FC.el('div', { class: 'fc-slot-top' }, top),
+      FC.el('div', { class: 'fc-slot-meta', text: metaText })
+    ];
   }
 
   var node = FC.el('div', {
-    class: 'fc-slot is-filled' + (isDup ? ' is-dup' : '') + (isPh ? ' is-placeholder' : ''),
+    class: base + ' is-filled' + (isDup ? ' is-dup' : '') + (isPh ? ' is-placeholder' : ''),
     'data-slot-id': slot.id, 'data-character-id': c.id, draggable: 'true',
+    title: compact ? (c.name + (!isMain && main ? ' (' + main.name + ')' : '') + ' · ' + metaText) : null,
     style: '--slot-color:' + FC.classColor(c.class)
-  }, [
-    FC.el('div', { class: 'fc-slot-top' }, top),
-    FC.el('div', { class: 'fc-slot-meta', text: metaText })
-  ]);
+  }, body);
   node.appendChild(FC.el('button', { class: 'fc-slot-x', type: 'button', 'data-slot-id': slot.id, text: '×' }));
   return node;
 };
@@ -724,6 +808,11 @@ FC.bindGlobalEvents = function () {
     if (t.id === 'fc-edit-raid') { FC.openRaidForm(FC.byId(FC.state.raids, FC.activeRaidId)); return; }
     if (t.id === 'fc-add-force' || t.id === 'fc-add-force-big') { FC.openForceForm(null); return; }
     if (t.id === 'fc-refresh-all') { FC.refreshAllAtul(); return; }
+
+    if (t.classList.contains('fc-viewseg-btn')) {
+      FC.setViewMode(FC.activeRaidId, t.getAttribute('data-view-mode'));
+      return;
+    }
 
     if (t.classList.contains('fc-tab') && t.hasAttribute('data-raid-id')) {
       FC.activeRaidId = Number(t.getAttribute('data-raid-id'));

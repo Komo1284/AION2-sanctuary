@@ -51,6 +51,12 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .fc-tab-add{padding:7px 11px;color:var(--dim);}
 .fc-spacer{flex:1 1 auto;}
 
+.fc-viewseg{display:flex;flex:0 0 auto;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+.fc-viewseg-btn{background:transparent;border:none;color:var(--muted);font-family:inherit;font-size:12px;
+  font-weight:700;padding:7px 13px;cursor:pointer;}
+.fc-viewseg-btn:hover{color:var(--text);}
+.fc-viewseg-btn.is-on{background:var(--panel-2);color:var(--gold);}
+
 .fc-raid-memo{font-size:12px;color:var(--muted);margin-bottom:10px;padding-left:2px;}
 .fc-warn{background:rgba(231,76,60,0.12);border:1px solid rgba(231,76,60,0.35);border-radius:8px;
   color:#ff9c92;font-size:12px;padding:8px 12px;margin-bottom:12px;}
@@ -68,6 +74,20 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .fc-party{display:flex;align-items:center;gap:6px;margin-bottom:6px;}
 .fc-party-label{width:40px;flex:0 0 40px;font-size:11px;color:var(--dim);}
 .fc-force-memo{font-size:11px;color:var(--dim);margin-top:8px;padding-left:46px;}
+
+/* 간략 보기 — 엑셀 표처럼 한 포스를 한 줄에 눕힌다 */
+.fc-force.is-compact{padding:6px 10px;margin-bottom:6px;}
+.fc-compact-line{display:flex;align-items:center;gap:8px;}
+.fc-compact-head{display:flex;align-items:baseline;gap:6px;flex:0 0 152px;}
+.fc-compact-head .fc-force-no{flex:0 0 46px;}
+.fc-compact-head .fc-force-when{flex:0 0 56px;}
+.fc-compact-row{display:flex;align-items:stretch;flex:1 1 0;min-width:0;}
+.fc-compact-party{display:flex;align-items:center;gap:4px;flex:1 1 0;min-width:0;}
+.fc-party-sep{flex:0 0 1px;align-self:stretch;background:var(--line-2);margin:0 7px;}
+/* 버튼을 숨겼다 보이면 줄 폭이 흔들려 옆 카드가 튄다 — 자리는 잡아두고 투명도만 바꾼다 */
+.fc-compact-tools{display:flex;gap:4px;flex:0 0 auto;opacity:0;transition:opacity .15s;}
+.fc-force.is-compact:hover .fc-compact-tools{opacity:1;}
+.fc-force-memo.is-compact{margin-top:5px;padding-left:0;}
 
 .fc-slot{flex:1 1 0;min-width:0;height:46px;box-sizing:border-box;border-radius:8px;display:flex;
   flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;padding:0 8px;font-size:13px;}
@@ -87,6 +107,11 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   color:var(--muted);font-size:14px;cursor:pointer;line-height:1;}
 .fc-slot.is-filled:hover .fc-slot-x{display:block;}
 .fc-slot.is-drop-target{border-color:var(--gold);box-shadow:0 0 0 2px rgba(240,201,106,0.25);}
+
+.fc-slot.is-compact{height:26px;padding:0 5px;font-size:12px;flex-direction:row;align-items:center;
+  justify-content:center;gap:0;}
+.fc-slot.is-compact .fc-slot-name{flex:1 1 auto;text-align:center;}
+.fc-slot.is-compact .fc-slot-x{top:50%;right:2px;transform:translateY(-50%);font-size:12px;}
 
 .fc-toast{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--blue);
   border-radius:8px;padding:10px 14px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,0.4);
