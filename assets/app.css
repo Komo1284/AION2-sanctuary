@@ -83,7 +83,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .fc-compact-head .fc-force-when{flex:0 0 56px;}
 .fc-compact-row{display:flex;align-items:stretch;flex:1 1 0;min-width:0;}
 .fc-compact-party{display:flex;align-items:center;gap:4px;flex:1 1 0;min-width:0;}
-.fc-party-sep{flex:0 0 1px;align-self:stretch;background:var(--line-2);margin:0 7px;}
+.fc-party-sep{flex:0 0 1px;align-self:stretch;background:var(--dim);opacity:.7;margin:0 8px;}
 /* 버튼을 숨겼다 보이면 줄 폭이 흔들려 옆 카드가 튄다 — 자리는 잡아두고 투명도만 바꾼다 */
 .fc-compact-tools{display:flex;gap:4px;flex:0 0 auto;opacity:0;transition:opacity .15s;}
 .fc-force.is-compact:hover .fc-compact-tools{opacity:1;}
