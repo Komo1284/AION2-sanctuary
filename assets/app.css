@@ -113,6 +113,27 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .fc-slot.is-compact .fc-slot-name{flex:1 1 auto;text-align:center;}
 .fc-slot.is-compact .fc-slot-x{top:50%;right:2px;transform:translateY(-50%);font-size:12px;}
 
+/* 드래그 중 힌트 — 같은 사람의 다른 카드는 금색으로, 그 사람이 이미 자리를 잡아
+   들어갈 수 없는 포스는 카드 전체가 빨갛게 반짝인다 */
+@keyframes fc-mate-glow{
+  0%,100%{box-shadow:0 0 0 0 rgba(240,201,106,0);}
+  50%{box-shadow:0 0 0 2px rgba(240,201,106,0.55), 0 0 14px 3px rgba(240,201,106,0.35);}
+}
+@keyframes fc-blocked-pulse{
+  0%,100%{border-color:var(--line);box-shadow:0 0 0 0 rgba(231,76,60,0);}
+  50%{border-color:rgba(231,76,60,0.85);box-shadow:0 0 0 2px rgba(231,76,60,0.3);}
+}
+.fc-slot.is-mate{animation:fc-mate-glow 1s ease-in-out infinite;position:relative;z-index:1;}
+.fc-force.is-blocked{animation:fc-blocked-pulse 1s ease-in-out infinite;}
+/* 못 들어가는 포스 위에서는 드롭 표시도 금색이 아니라 빨강이어야 말이 맞는다.
+   .is-mate의 애니메이션이 정적 box-shadow를 덮어쓰므로 여기서 함께 꺼준다. */
+.fc-force.is-blocked .fc-slot.is-drop-target{border-color:var(--danger);
+  box-shadow:0 0 0 2px rgba(231,76,60,0.35);animation:none;}
+@media (prefers-reduced-motion: reduce){
+  .fc-slot.is-mate{animation:none;box-shadow:0 0 0 2px rgba(240,201,106,0.55);}
+  .fc-force.is-blocked{animation:none;border-color:rgba(231,76,60,0.85);}
+}
+
 .fc-toast{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--blue);
   border-radius:8px;padding:10px 14px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,0.4);
   transition:opacity .25s, transform .25s;}

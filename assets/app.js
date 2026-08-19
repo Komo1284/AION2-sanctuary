@@ -1000,6 +1000,56 @@ FC.playerConflict = function (forceId, characterId, excludeSlotId) {
   return found;
 };
 
+// ── 드래그 중 힌트 ──────────────────────────────────────────
+// 카드를 집는 순간 (1) 같은 사람의 다른 카드가 금색으로 반짝이고, (2) 그 사람이
+// 이미 자리를 잡아 들어갈 수 없는 포스는 카드 전체가 빨갛게 반짝인다.
+// "한 사람은 같은 포스에 두 번 들어갈 수 없다"(fc_force_player_conflict)는 규칙을
+// 끌어다 놓아보기 전에 눈으로 알려주는 장치다.
+//
+// 두 함수 모두 클래스만 붙였다 뗀다 — 드래그 중에 FC.render()로 보드를 다시 그리면
+// 손에 든 슬롯 노드가 DOM에서 빠져 dragend가 document까지 올라오지 못하고 FC.busy가
+// 굳어 폴링이 영구 정지한다(FC.dropOnSlot 주석 참고).
+FC.clearDragHints = function () {
+  Array.prototype.slice.call(document.querySelectorAll('.is-mate, .is-blocked'))
+    .forEach(function (n) { n.classList.remove('is-mate'); n.classList.remove('is-blocked'); });
+};
+
+FC.applyDragHints = function () {
+  FC.clearDragHints();
+  var drag = FC.drag;
+  if (!drag) return;
+  var moving = FC.byId(FC.state.characters, drag.characterId);
+  if (!moving) return;
+  var pid = Number(moving.player_id);
+
+  // 슬롯에서 집었다면 그 카드가 원래 있던 포스는 막지 않는다 — 같은 포스 안에서
+  // 자리만 바꾸는 것은 언제나 허용된다. (서버 규칙상 한 포스에 같은 사람이 둘일 수는
+  // 없으므로 보통은 걸릴 일이 없지만, 과거 데이터나 직접 넣은 행이 있어도 안전하도록.)
+  var fromForceId = null;
+  if (drag.fromSlotId) {
+    (FC.state.slots || []).forEach(function (s) {
+      if (Number(s.id) === Number(drag.fromSlotId)) fromForceId = Number(s.force_id);
+    });
+  }
+
+  var blocked = {};
+  Array.prototype.slice.call(document.querySelectorAll('.fc-slot.is-filled'))
+    .forEach(function (node) {
+      // 손에 든 카드 자신은 빼고, 같은 사람의 카드만 반짝인다
+      if (Number(node.getAttribute('data-slot-id')) === Number(drag.fromSlotId)) return;
+      var c = FC.byId(FC.state.characters, Number(node.getAttribute('data-character-id')));
+      if (!c || Number(c.player_id) !== pid) return;
+      node.classList.add('is-mate');
+      var force = node.closest ? node.closest('.fc-force') : null;
+      if (force) blocked[force.getAttribute('data-force-id')] = force;
+    });
+
+  Object.keys(blocked).forEach(function (fid) {
+    if (fromForceId !== null && Number(fid) === fromForceId) return;
+    blocked[fid].classList.add('is-blocked');
+  });
+};
+
 FC.refreshAllRunning = false;
 FC.refreshAllLabel = null;
 
@@ -1178,6 +1228,7 @@ FC.dropOnSlot = function (slotId) {
   // 정상적으로 오더라도 이미 null인 값을 다시 null로 만들 뿐이라 멱등하다.
   FC.drag = null;
   FC.recomputeBusy();
+  FC.clearDragHints();
 
   var slot = null;
   (FC.state.slots || []).forEach(function (s) { if (Number(s.id) === Number(slotId)) slot = s; });
@@ -1269,6 +1320,7 @@ FC.bindDragEvents = function () {
       return;
     }
     FC.recomputeBusy();
+    FC.applyDragHints();
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', String(FC.drag.characterId));
   });
@@ -1300,6 +1352,7 @@ FC.bindDragEvents = function () {
     // 만든 경우에도 다시 실행될 수 있지만 멱등하므로 문제없다.
     FC.drag = null;
     FC.recomputeBusy();
+    FC.clearDragHints();
     Array.prototype.slice.call(document.querySelectorAll('.is-drop-target'))
       .forEach(function (n) { n.classList.remove('is-drop-target'); });
   });
