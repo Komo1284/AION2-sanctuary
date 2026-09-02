@@ -182,3 +182,31 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .fc-pop-name{font-size:13px;font-weight:700;}
 .fc-pop-meta{font-size:10px;color:var(--dim);margin-left:auto;}
 .fc-pop-tag{font-size:10px;color:var(--gold);border:1px solid var(--gold-2);border-radius:6px;padding:1px 5px;}
+
+/* 탭 드래그 정렬 — 집은 탭은 흐리게, 놓을 자리는 금색 세로선으로 표시 */
+.fc-tab[draggable="true"]{cursor:grab;}
+.fc-tab.is-dragging{opacity:.35;}
+.fc-tab.is-drop-before{box-shadow:-3px 0 0 0 var(--gold);}
+.fc-tab.is-drop-after{box-shadow:3px 0 0 0 var(--gold);}
+
+/* 비활성 포스 — "이번 주는 안 돌린다". 슬롯은 그대로 두되 한눈에 꺼진 게 보여야 한다:
+   회색 빗금 배경 + 점선 테두리 + 붉은 배지, 본문은 흑백으로 가라앉힌다 */
+.fc-force.is-inactive{border:1px dashed var(--line-2);
+  background:repeating-linear-gradient(135deg,var(--panel) 0 10px,#0c0e18 10px 20px);}
+.fc-force.is-inactive .fc-force-no{color:var(--dim);}
+.fc-force.is-inactive .fc-force-when{text-decoration:line-through;color:var(--dim);}
+.fc-force.is-inactive .fc-force-body,
+.fc-force.is-inactive .fc-compact-row,
+.fc-force.is-inactive .fc-force-memo{filter:grayscale(1);opacity:.45;}
+.fc-force.is-inactive .fc-force-body:hover,
+.fc-force.is-inactive .fc-compact-row:hover{opacity:.75;}
+.fc-force-off-badge{font-size:11px;font-weight:900;letter-spacing:.3px;color:#ff9c92;
+  background:rgba(231,76,60,0.16);border:1px solid rgba(231,76,60,0.55);border-radius:6px;padding:2px 8px;}
+.fc-force-off-strip{margin-top:6px;font-size:11px;font-weight:700;color:#ff9c92;text-align:center;
+  background:rgba(231,76,60,0.12);border:1px dashed rgba(231,76,60,0.45);border-radius:6px;padding:3px 8px;}
+.fc-force-toggle{white-space:nowrap;}
+.fc-force-toggle:hover{color:#ff9c92;border-color:rgba(231,76,60,0.55);}
+/* 켜는 버튼은 꺼진 카드 위에서 유일하게 또렷해야 한다 */
+.fc-force-toggle.is-off{color:var(--gold);border-color:var(--gold-2);background:rgba(240,201,106,0.1);}
+.fc-force-toggle.is-off:hover{color:#0a0c14;background:var(--gold);}
+.fc-force.is-inactive .fc-compact-tools{opacity:1;}

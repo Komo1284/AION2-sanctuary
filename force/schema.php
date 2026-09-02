@@ -2,6 +2,13 @@
 // fc_* 테이블 DDL. 멱등 생성만 담당한다.
 // 기존 sanctuary_* / craft_* 테이블은 절대 건드리지 않는다.
 
+function fc_add_column_if_missing(PDO $pdo, $table, $column, $definition) {
+    $st = $pdo->prepare("SHOW COLUMNS FROM `$table` LIKE ?");
+    $st->execute([$column]);
+    if ($st->fetch()) return;
+    $pdo->exec("ALTER TABLE `$table` ADD COLUMN `$column` $definition");
+}
+
 function fc_init_schema(PDO $pdo) {
     $pdo->exec("CREATE TABLE IF NOT EXISTS fc_players (
         id         INT AUTO_INCREMENT PRIMARY KEY,
@@ -42,8 +49,14 @@ function fc_init_schema(PDO $pdo) {
         start_time  VARCHAR(5)   NULL,
         memo        VARCHAR(200) NOT NULL DEFAULT '',
         sort_order  INT          NOT NULL DEFAULT 0,
+        is_active   TINYINT(1)   NOT NULL DEFAULT 1,
         KEY idx_raid (raid_id)
     ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+    // CREATE TABLE IF NOT EXISTS는 이미 있는 테이블에 컬럼을 더해주지 않는다.
+    // 나중에 추가된 컬럼은 여기서 있는지 보고 없을 때만 붙인다 (매 요청마다 돌지만
+    // SHOW COLUMNS 한 번이라 부담이 없다).
+    fc_add_column_if_missing($pdo, 'fc_forces', 'is_active',
+        "TINYINT(1) NOT NULL DEFAULT 1 AFTER sort_order");
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS fc_slots (
         id           INT AUTO_INCREMENT PRIMARY KEY,

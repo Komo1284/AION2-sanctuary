@@ -280,6 +280,24 @@ function fc_update_raid(PDO $pdo, $id, array $fields) {
     fc_bump_revision($pdo);
 }
 
+// 탭 드래그로 정한 순서를 그대로 저장한다. $ids는 새 순서대로 나열한 레이드 id 전체여야
+// 한다 — 일부만 오면 빠진 레이드의 순서가 어디로 가야 할지 정할 수 없으므로 거부한다.
+function fc_reorder_raids(PDO $pdo, array $ids) {
+    $ids = array_values(array_map('intval', $ids));
+    $existing = array_map('intval', $pdo->query("SELECT id FROM fc_raids")->fetchAll(PDO::FETCH_COLUMN));
+    if (count($ids) !== count($existing) || count($ids) !== count(array_unique($ids))) {
+        throw new RuntimeException('bad_request');
+    }
+    foreach ($ids as $id) {
+        if (!in_array($id, $existing, true)) throw new RuntimeException('bad_request');
+    }
+    $upd = $pdo->prepare("UPDATE fc_raids SET sort_order = ? WHERE id = ?");
+    foreach ($ids as $i => $id) {
+        $upd->execute([$i, $id]);
+    }
+    fc_bump_revision($pdo);
+}
+
 function fc_delete_raid(PDO $pdo, $id) {
     $st = $pdo->prepare("SELECT id FROM fc_forces WHERE raid_id = ?");
     $st->execute([$id]);
@@ -317,8 +335,10 @@ function fc_create_force(PDO $pdo, $raidId, $day, $time, $memo = '') {
     return $forceId;
 }
 
+// is_active=0은 "이번 주는 안 돌리지만 명단은 그대로 둔다"는 뜻이다. 슬롯은 건드리지
+// 않으므로 다시 1로 돌리면 들어 있던 멤버 그대로 되살아난다.
 function fc_update_force(PDO $pdo, $id, array $fields) {
-    $allowed = ['day_of_week', 'start_time', 'memo'];
+    $allowed = ['day_of_week', 'start_time', 'memo', 'is_active'];
     $sets = [];
     $args = [];
     foreach ($allowed as $col) {
@@ -326,6 +346,8 @@ function fc_update_force(PDO $pdo, $id, array $fields) {
         $val = $fields[$col];
         if ($col === 'memo') {
             $sets[] = "$col = ?"; $args[] = (string)$val;
+        } elseif ($col === 'is_active') {
+            $sets[] = "$col = ?"; $args[] = $val ? 1 : 0;
         } else {
             $sets[] = "$col = ?"; $args[] = ($val === '' || $val === null) ? null : $val;
         }
@@ -430,10 +452,14 @@ function fc_swap_slots(PDO $pdo, $slotIdA, $slotIdB) {
 }
 
 // 순수 함수 — DB를 모른다. 같은 레이드 안에서 같은 캐릭터가 두 번 이상 배치된 경우를 찾는다.
-// 같은 포스 안의 중복도 잡는다.
+// 같은 포스 안의 중복도 잡는다. 비활성 포스(is_active=0)는 이번 주 안 도는 포스이므로
+// 그 안의 멤버가 다른 포스에 임시로 들어가도 중복이 아니다 — 검사에서 뺀다.
 function fc_duplicates(array $forces, array $slots) {
     $raidOfForce = [];
-    foreach ($forces as $f) { $raidOfForce[(int)$f['id']] = (int)$f['raid_id']; }
+    foreach ($forces as $f) {
+        if (isset($f['is_active']) && (int)$f['is_active'] === 0) continue;
+        $raidOfForce[(int)$f['id']] = (int)$f['raid_id'];
+    }
 
     $seen = [];   // raid_id => character_id => [force_id, ...]
     foreach ($slots as $s) {
@@ -470,7 +496,7 @@ function fc_state(PDO $pdo) {
          FROM fc_characters ORDER BY player_id, sort_order, id")->fetchAll();
 
     $raids  = $pdo->query("SELECT id, name, memo, sort_order FROM fc_raids ORDER BY sort_order, id")->fetchAll();
-    $forces = $pdo->query("SELECT id, raid_id, force_no, day_of_week, start_time, memo, sort_order
+    $forces = $pdo->query("SELECT id, raid_id, force_no, day_of_week, start_time, memo, sort_order, is_active
                            FROM fc_forces ORDER BY raid_id, force_no, id")->fetchAll();
     $slots  = $pdo->query("SELECT id, force_id, party_no, slot_no, character_id
                            FROM fc_slots ORDER BY force_id, party_no, slot_no")->fetchAll();
@@ -486,7 +512,7 @@ function fc_state(PDO $pdo) {
     $toInt($players, ['id', 'sort_order']);
     $toInt($characters, ['id', 'player_id', 'is_main', 'is_placeholder', 'sort_order'], ['atul', 'item_level']);
     $toInt($raids, ['id', 'sort_order']);
-    $toInt($forces, ['id', 'raid_id', 'force_no', 'sort_order']);
+    $toInt($forces, ['id', 'raid_id', 'force_no', 'sort_order', 'is_active']);
     $toInt($slots, ['id', 'force_id', 'party_no', 'slot_no'], ['character_id']);
 
     return [

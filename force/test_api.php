@@ -221,6 +221,63 @@ $f1b = $pdo->query("SELECT day_of_week, start_time FROM fc_forces WHERE id = $fi
 t_eq($f1b['day_of_week'], '일', '요일을 수정할 수 있다');
 t_eq($f1b['start_time'], '20:00', '시각을 수정할 수 있다');
 
+t_section('포스 비활성화');
+
+$actDefault = (int)$pdo->query("SELECT is_active FROM fc_forces WHERE id = $fid1")->fetchColumn();
+t_eq($actDefault, 1, '새 포스는 기본으로 활성(is_active=1)이다');
+
+fc_update_force($pdo, $fid1, ['is_active' => 0]);
+t_eq((int)$pdo->query("SELECT is_active FROM fc_forces WHERE id = $fid1")->fetchColumn(), 0, '비활성화하면 is_active가 0이 된다');
+t_eq((int)$pdo->query("SELECT COUNT(*) FROM fc_slots WHERE force_id = $fid1")->fetchColumn(), 10, '비활성화해도 슬롯 10행은 그대로 남는다');
+
+fc_update_force($pdo, $fid1, ['is_active' => 1]);
+t_eq((int)$pdo->query("SELECT is_active FROM fc_forces WHERE id = $fid1")->fetchColumn(), 1, '다시 활성화하면 is_active가 1로 돌아온다');
+
+$stForces = fc_state($pdo)['forces'];
+$stF1 = null;
+foreach ($stForces as $f) { if ((int)$f['id'] === $fid1) $stF1 = $f; }
+t_ok($stF1 !== null && $stF1['is_active'] === 1, 'state 스냅샷의 포스에 is_active가 정수로 실린다');
+
+t_section('레이드 탭 순서 변경');
+
+$ridB = fc_create_raid($pdo, 'zzTest_레이드B');
+$ridC = fc_create_raid($pdo, 'zzTest_레이드C');
+$allRaidIds = array_map('intval', $pdo->query("SELECT id FROM fc_raids ORDER BY sort_order, id")->fetchAll(PDO::FETCH_COLUMN));
+// zzTest_ 세 레이드를 C, B, 원래 순으로 뒤집고 나머지는 그대로 앞에 둔다
+$others = array_values(array_filter($allRaidIds, function ($id) use ($rid, $ridB, $ridC) {
+    return $id !== $rid && $id !== $ridB && $id !== $ridC;
+}));
+$newOrder = array_merge($others, [$ridC, $ridB, $rid]);
+fc_reorder_raids($pdo, $newOrder);
+$afterOrder = array_map('intval', $pdo->query("SELECT id FROM fc_raids ORDER BY sort_order, id")->fetchAll(PDO::FETCH_COLUMN));
+t_eq($afterOrder, $newOrder, '넘긴 순서대로 sort_order가 다시 매겨진다');
+t_eq(array_map('intval', fc_state($pdo)['raids'] ? array_column(fc_state($pdo)['raids'], 'id') : []), $newOrder, 'state의 raids도 새 순서로 나온다');
+
+$partialRejected = false;
+try { fc_reorder_raids($pdo, [$rid, $ridB]); }
+catch (RuntimeException $e) { $partialRejected = ($e->getMessage() === 'bad_request'); }
+t_ok($partialRejected, '일부 레이드만 넘기면 bad_request로 거부한다');
+
+$dupRejected = false;
+$dupList = $newOrder; $dupList[count($dupList) - 1] = $ridC;
+try { fc_reorder_raids($pdo, $dupList); }
+catch (RuntimeException $e) { $dupRejected = ($e->getMessage() === 'bad_request'); }
+t_ok($dupRejected, '같은 id가 두 번 들어오면 bad_request로 거부한다');
+
+$unknownRejected = false;
+$unkList = $newOrder; $unkList[count($unkList) - 1] = 99999999;
+try { fc_reorder_raids($pdo, $unkList); }
+catch (RuntimeException $e) { $unknownRejected = ($e->getMessage() === 'bad_request'); }
+t_ok($unknownRejected, '없는 레이드 id가 섞이면 bad_request로 거부한다');
+
+$stillOrder = array_map('intval', $pdo->query("SELECT id FROM fc_raids ORDER BY sort_order, id")->fetchAll(PDO::FETCH_COLUMN));
+t_eq($stillOrder, $newOrder, '거부된 호출은 순서를 건드리지 않는다');
+
+// 원래 순서(원래 있던 레이드 → 테스트 레이드 생성순)로 되돌려 운영 탭 순서를 바꾸지 않는다
+fc_reorder_raids($pdo, array_merge($others, [$rid, $ridB, $ridC]));
+fc_delete_raid($pdo, $ridB);
+fc_delete_raid($pdo, $ridC);
+
 t_section('포스 삭제 시 번호를 다시 매기지 않는다');
 
 fc_delete_force($pdo, $fid1);
@@ -344,6 +401,12 @@ t_eq((int)$dups['1'][0]['character_id'], 7, '중복된 캐릭터는 7번이다')
 t_eq(array_map('intval', $dups['1'][0]['force_ids']), [100, 101], '중복된 포스 id 두 개가 잡힌다');
 t_ok(!isset($dups['2']), '레이드가 다르면 중복으로 잡지 않는다');
 
+$fForcesOff = [
+    ['id' => 100, 'raid_id' => 1, 'is_active' => 1], ['id' => 101, 'raid_id' => 1, 'is_active' => 0],
+];
+$dupsOff = fc_duplicates($fForcesOff, $fSlots);
+t_ok(!isset($dupsOff['1']), '비활성 포스에 있는 캐릭터는 중복으로 잡지 않는다');
+
 t_section('state 스냅샷');
 
 $pid3 = fc_create_player($pdo, 'zzTest_상태본캐', ['zzTest_상태부캐']);
@@ -397,10 +460,35 @@ $res2 = $call(['action' => 'raid.create', 'name' => 'zzTest_API레이드']);
 $apiRid = (int)$res2['raid_id'];
 t_ok($apiRid > 0, 'raid.create가 raid_id를 돌려준다');
 
+$apiRid2 = (int)$call(['action' => 'raid.create', 'name' => 'zzTest_API레이드2'])['raid_id'];
+$apiAllIds = array_map('intval', $pdo->query("SELECT id FROM fc_raids ORDER BY sort_order, id")->fetchAll(PDO::FETCH_COLUMN));
+$apiSwapped = $apiAllIds;
+$iA = array_search($apiRid, $apiSwapped, true); $iB = array_search($apiRid2, $apiSwapped, true);
+$apiSwapped[$iA] = $apiRid2; $apiSwapped[$iB] = $apiRid;
+$reRes = $call(['action' => 'raid.reorder', 'raid_ids' => $apiSwapped]);
+t_eq($reRes['reordered'], $apiSwapped, 'raid.reorder가 저장한 순서를 돌려준다');
+t_eq(array_map('intval', $pdo->query("SELECT id FROM fc_raids ORDER BY sort_order, id")->fetchAll(PDO::FETCH_COLUMN)),
+     $apiSwapped, 'raid.reorder 후 DB 순서가 바뀐다');
+$call(['action' => 'raid.reorder', 'raid_ids' => $apiAllIds]);   // 원래대로
+$reBad = false;
+try { $call(['action' => 'raid.reorder', 'raid_ids' => [[$apiRid]]]); }
+catch (RuntimeException $e) { $reBad = ($e->getMessage() === 'bad_request'); }
+t_ok($reBad, 'raid.reorder에 배열 안 배열을 넣으면 bad_request다');
+$reBad2 = false;
+try { $call(['action' => 'raid.reorder']); }
+catch (RuntimeException $e) { $reBad2 = ($e->getMessage() === 'bad_request'); }
+t_ok($reBad2, 'raid.reorder에 raid_ids가 없으면 bad_request다');
+$call(['action' => 'raid.delete', 'raid_id' => $apiRid2]);
+
 $res3 = $call(['action' => 'force.create', 'raid_id' => $apiRid,
                'day_of_week' => '금', 'start_time' => '21:30', 'memo' => '']);
 $apiFid = (int)$res3['force_id'];
 t_ok($apiFid > 0, 'force.create가 force_id를 돌려준다');
+
+$call(['action' => 'force.update', 'force_id' => $apiFid, 'is_active' => 0]);
+t_eq((int)$pdo->query("SELECT is_active FROM fc_forces WHERE id = $apiFid")->fetchColumn(), 0, 'force.update로 is_active=0을 저장한다');
+$call(['action' => 'force.update', 'force_id' => $apiFid, 'is_active' => 1]);
+t_eq((int)$pdo->query("SELECT is_active FROM fc_forces WHERE id = $apiFid")->fetchColumn(), 1, 'force.update로 is_active=1로 되돌린다');
 
 $st8 = $call(['action' => 'state']);
 t_ok(isset($st8['revision']) && isset($st8['slots']), 'state가 스냅샷을 돌려준다');

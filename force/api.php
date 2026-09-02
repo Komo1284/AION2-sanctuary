@@ -104,6 +104,16 @@ function fc_api_dispatch(PDO $pdo, array $req, $lookup) {
             fc_update_raid($pdo, $rid, $fields);
             return ['updated' => $rid];
 
+        // 탭 드래그 정렬. raid_ids는 새 순서대로 나열한 레이드 id 전체.
+        case 'raid.reorder':
+            $ids = isset($req['raid_ids']) && is_array($req['raid_ids']) ? $req['raid_ids'] : null;
+            if ($ids === null || !$ids) throw new RuntimeException('bad_request');
+            foreach ($ids as $v) {
+                if (is_array($v) || is_object($v)) throw new RuntimeException('bad_request');
+            }
+            fc_reorder_raids($pdo, $ids);
+            return ['reordered' => array_values(array_map('intval', $ids))];
+
         case 'raid.delete':
             $rid = fc_req_int($req, 'raid_id');
             if ($rid <= 0) throw new RuntimeException('bad_request');
@@ -122,7 +132,7 @@ function fc_api_dispatch(PDO $pdo, array $req, $lookup) {
             $fid = fc_req_int($req, 'force_id');
             if ($fid <= 0) throw new RuntimeException('bad_request');
             $fields = [];
-            foreach (['day_of_week', 'start_time', 'memo'] as $k) {
+            foreach (['day_of_week', 'start_time', 'memo', 'is_active'] as $k) {
                 if (array_key_exists($k, $req)) $fields[$k] = fc_req_scalar($req[$k]);
             }
             fc_update_force($pdo, $fid, $fields);

@@ -184,10 +184,12 @@ FC.renderRoster = function () {
 FC.renderTabs = function () {
   var host = document.getElementById('fc-tabs');
   host.innerHTML = '';
+  // 탭은 끌어서 순서를 바꿀 수 있다 (FC.bindDragEvents의 type:'tab' 경로).
   (FC.state.raids || []).forEach(function (r) {
     var tab = FC.el('button', {
       class: 'fc-tab' + (Number(r.id) === Number(FC.activeRaidId) ? ' is-active' : ''),
-      'data-raid-id': r.id, type: 'button', text: r.name
+      'data-raid-id': r.id, type: 'button', text: r.name, draggable: 'true',
+      title: '끌어서 순서 변경'
     });
     host.appendChild(tab);
   });
@@ -290,12 +292,15 @@ FC.renderForce = function (force, dupIds) {
                       : '';
 
   var when = (force.day_of_week || '') + (force.start_time ? ' ' + force.start_time : '');
+  var inactive = FC.isForceInactive(force);
   var head = FC.el('div', { class: 'fc-force-head' }, [
     FC.el('span', { class: 'fc-force-no', text: force.force_no + '포스' }),
+    inactive ? FC.el('span', { class: 'fc-force-off-badge', text: '⏸ 비활성 · 이번 주 미운영' }) : null,
     FC.el('span', { class: 'fc-force-when', text: when || '시간 미정' }),
     FC.el('span', { class: 'fc-force-count', text: filled + '/10' }),
     avgText ? FC.el('span', { class: 'fc-force-avg', text: avgText }) : null,
     FC.el('span', { class: 'fc-spacer' }),
+    FC.renderForceToggle(force),
     FC.el('button', { class: 'fc-icon-btn fc-force-edit', 'data-force-id': force.id, type: 'button', text: '수정' }),
     FC.el('button', { class: 'fc-icon-btn fc-force-del', 'data-force-id': force.id, type: 'button', text: '삭제' })
   ]);
@@ -311,9 +316,25 @@ FC.renderForce = function (force, dupIds) {
     body.appendChild(row);
   });
 
-  var card = FC.el('div', { class: 'fc-force', 'data-force-id': force.id }, [head, body]);
+  var card = FC.el('div', { class: 'fc-force' + (inactive ? ' is-inactive' : ''), 'data-force-id': force.id }, [head, body]);
   if (force.memo) card.appendChild(FC.el('div', { class: 'fc-force-memo', text: force.memo }));
   return card;
+};
+
+// 비활성 포스: "이번 주는 안 돌리지만 명단은 그대로 둔다". 슬롯은 건드리지 않고
+// 카드만 흐리게 그린다 — 다음 주에 활성화 버튼 하나로 그대로 되살린다.
+FC.isForceInactive = function (force) {
+  return force && force.is_active !== undefined && Number(force.is_active) === 0;
+};
+
+FC.renderForceToggle = function (force) {
+  var inactive = FC.isForceInactive(force);
+  return FC.el('button', {
+    class: 'fc-icon-btn fc-force-toggle' + (inactive ? ' is-off' : ''),
+    'data-force-id': force.id, type: 'button',
+    text: inactive ? '▶ 활성화' : '⏸ 비활성화',
+    title: inactive ? '이 포스를 다시 운영합니다 (멤버 그대로)' : '이번 주는 이 포스를 운영하지 않습니다 (멤버는 유지)'
+  });
 };
 
 // 간략 보기 — 엑셀 표처럼 한 포스를 한 줄에 눕힌다.
@@ -325,6 +346,7 @@ FC.renderForceCompact = function (force, dupIds) {
   var filled = slots.filter(function (s) { return s.character_id !== null; }).length;
   var when = (force.day_of_week || '') + (force.start_time ? ' ' + force.start_time : '');
 
+  var inactive = FC.isForceInactive(force);
   var head = FC.el('div', { class: 'fc-compact-head' }, [
     FC.el('span', { class: 'fc-force-no', text: force.force_no + '포스' }),
     FC.el('span', { class: 'fc-force-when', text: when || '미정' }),
@@ -342,13 +364,16 @@ FC.renderForceCompact = function (force, dupIds) {
   });
 
   var tools = FC.el('div', { class: 'fc-compact-tools' }, [
+    FC.renderForceToggle(force),
     FC.el('button', { class: 'fc-icon-btn fc-force-edit', 'data-force-id': force.id, type: 'button', text: '수정' }),
     FC.el('button', { class: 'fc-icon-btn fc-force-del', 'data-force-id': force.id, type: 'button', text: '삭제' })
   ]);
 
-  var card = FC.el('div', { class: 'fc-force is-compact', 'data-force-id': force.id }, [
+  var card = FC.el('div', { class: 'fc-force is-compact' + (inactive ? ' is-inactive' : ''), 'data-force-id': force.id }, [
     FC.el('div', { class: 'fc-compact-line' }, [head, row, tools])
   ]);
+  // 간략 보기는 줄이 얇아 헤더에 배지를 넣을 자리가 없다 — 카드 위에 띠로 덮는다.
+  if (inactive) card.appendChild(FC.el('div', { class: 'fc-force-off-strip', text: '⏸ 비활성 · 이번 주 미운영 (멤버 유지)' }));
   if (force.memo) card.appendChild(FC.el('div', { class: 'fc-force-memo is-compact', text: force.memo }));
   return card;
 };
@@ -825,6 +850,21 @@ FC.bindGlobalEvents = function () {
       return;
     }
 
+    if (t.classList.contains('fc-force-toggle')) {
+      var togFid = Number(t.getAttribute('data-force-id'));
+      var togForce = FC.byId(FC.state.forces, togFid);
+      if (!togForce) return;
+      var nextActive = FC.isForceInactive(togForce) ? 1 : 0;
+      t.disabled = true;
+      FC.api('force.update', { force_id: togFid, is_active: nextActive })
+        .then(function () {
+          FC.toast(nextActive ? (togForce.force_no + '포스를 다시 활성화했어요') : (togForce.force_no + '포스를 비활성화했어요 (멤버는 그대로)'), 'ok');
+          return FC.refresh();
+        })
+        .catch(function (err) { t.disabled = false; FC.toast(FC.errorText(err), 'err'); });
+      return;
+    }
+
     if (t.classList.contains('fc-force-del')) {
       var delFid = Number(t.getAttribute('data-force-id'));
       var f = FC.byId(FC.state.forces, delFid);
@@ -1219,7 +1259,7 @@ FC.openPopover = function (playerId, anchorEl) {
 // 낙관적 UI: 화면을 먼저 바꾸고 뒤에서 저장한다. 실패하면 되돌린다.
 FC.dropOnSlot = function (slotId) {
   var drag = FC.drag;
-  if (!drag) return;
+  if (!drag || drag.type === 'tab') return;
 
   // 여기서 곧바로 드래그 상태를 정리한다. FC.render()/FC.reopenPopoverIfOpen()이
   // 소스 노드(팝오버 행 또는 슬롯)를 DOM에서 분리시킬 수 있는데, 그러면 브라우저가
@@ -1302,10 +1342,59 @@ FC.dropOnSlot = function (slotId) {
   });
 };
 
+// ── 탭 순서 변경 ────────────────────────────────────────────
+// 낙관적 UI: FC.state.raids를 먼저 재배열해 탭을 다시 그리고 서버에 저장한다.
+// 실패하면 서버 상태를 다시 받아 되돌린다.
+FC.reorderRaidTab = function (movingId, targetId, placeAfter) {
+  var raids = (FC.state.raids || []).slice();
+  var fromIdx = -1;
+  var toIdx = -1;
+  raids.forEach(function (r, i) {
+    if (Number(r.id) === Number(movingId)) fromIdx = i;
+    if (Number(r.id) === Number(targetId)) toIdx = i;
+  });
+  if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return;
+
+  var moving = raids.splice(fromIdx, 1)[0];
+  var insertAt = raids.indexOf(FC.byId(raids, targetId)) + (placeAfter ? 1 : 0);
+  raids.splice(insertAt, 0, moving);
+
+  var changed = raids.some(function (r, i) { return Number(r.id) !== Number(FC.state.raids[i].id); });
+  if (!changed) return;
+
+  raids.forEach(function (r, i) { r.sort_order = i; });
+  FC.state.raids = raids;
+  FC.renderTabs();
+
+  FC.api('raid.reorder', { raid_ids: raids.map(function (r) { return Number(r.id); }) })
+    .then(function () { FC.toast('탭 순서를 저장했어요', 'ok'); })
+    .catch(function (err) {
+      FC.toast(FC.errorText(err), 'err');
+      FC.state.revision = -1;
+      FC.refresh().catch(function () { /* 배너는 FC.api가 띄웠다 */ });
+    });
+};
+
+FC.clearTabDropMarks = function () {
+  Array.prototype.slice.call(document.querySelectorAll('.fc-tab.is-drop-before, .fc-tab.is-drop-after'))
+    .forEach(function (n) { n.classList.remove('is-drop-before'); n.classList.remove('is-drop-after'); });
+};
+
 FC.bindDragEvents = function () {
   document.addEventListener('dragstart', function (e) {
+    var tab = e.target.closest ? e.target.closest('.fc-tab[data-raid-id]') : null;
     var row = e.target.closest ? e.target.closest('.fc-pop-row') : null;
     var slot = e.target.closest ? e.target.closest('.fc-slot.is-filled') : null;
+
+    if (tab) {
+      // 탭 드래그도 FC.drag를 써서 폴링이 탭을 갈아엎지 않게 한다 (FC.recomputeBusy).
+      FC.drag = { type: 'tab', raidId: Number(tab.getAttribute('data-raid-id')) };
+      tab.classList.add('is-dragging');
+      FC.recomputeBusy();
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', 'raid:' + FC.drag.raidId);
+      return;
+    }
 
     if (row) {
       if (!FC.activeRaidId) { e.preventDefault(); FC.toast('레이드를 먼저 선택하세요', 'err'); return; }
@@ -1326,6 +1415,16 @@ FC.bindDragEvents = function () {
   });
 
   document.addEventListener('dragover', function (e) {
+    if (FC.drag && FC.drag.type === 'tab') {
+      var overTab = e.target.closest ? e.target.closest('.fc-tab[data-raid-id]') : null;
+      FC.clearTabDropMarks();
+      if (!overTab || Number(overTab.getAttribute('data-raid-id')) === FC.drag.raidId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      var rect = overTab.getBoundingClientRect();
+      overTab.classList.add(e.clientX < rect.left + rect.width / 2 ? 'is-drop-before' : 'is-drop-after');
+      return;
+    }
     var slot = e.target.closest ? e.target.closest('.fc-slot') : null;
     if (!slot || !FC.drag) return;
     e.preventDefault();
@@ -1339,6 +1438,18 @@ FC.bindDragEvents = function () {
   });
 
   document.addEventListener('drop', function (e) {
+    if (FC.drag && FC.drag.type === 'tab') {
+      var dropTab = e.target.closest ? e.target.closest('.fc-tab[data-raid-id]') : null;
+      var movingId = FC.drag.raidId;
+      FC.drag = null;
+      FC.recomputeBusy();
+      FC.clearTabDropMarks();
+      if (!dropTab) return;
+      e.preventDefault();
+      var r = dropTab.getBoundingClientRect();
+      FC.reorderRaidTab(movingId, Number(dropTab.getAttribute('data-raid-id')), e.clientX >= r.left + r.width / 2);
+      return;
+    }
     var slot = e.target.closest ? e.target.closest('.fc-slot') : null;
     if (!slot || !FC.drag) return;
     e.preventDefault();
@@ -1353,8 +1464,9 @@ FC.bindDragEvents = function () {
     FC.drag = null;
     FC.recomputeBusy();
     FC.clearDragHints();
-    Array.prototype.slice.call(document.querySelectorAll('.is-drop-target'))
-      .forEach(function (n) { n.classList.remove('is-drop-target'); });
+    FC.clearTabDropMarks();
+    Array.prototype.slice.call(document.querySelectorAll('.is-drop-target, .fc-tab.is-dragging'))
+      .forEach(function (n) { n.classList.remove('is-drop-target'); n.classList.remove('is-dragging'); });
   });
 };
 
