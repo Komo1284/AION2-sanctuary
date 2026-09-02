@@ -49,7 +49,7 @@ Server: `14.63.164.109:54122` (root), SSH alias `aion-sanctuary`, repo `https://
 - `force/store.php` — DB 조작 전담 (HTTP/HTML 모름)
 - `force/atul.php` — aion2.plaync.com 조회 (DB 모름)
 - `force/api.php` — JSON 경계. `fc_api_dispatch()`가 순수 디스패처. 액션: `state`,
-  `player.create/delete`, `character.add/update/promote/delete`, `raid.create/update/delete`,
+  `player.create/delete`, `character.add/update/promote/delete`, `raid.create/update/reorder/delete`,
   `force.create/update/delete`, `slot.assign/swap`, `atul.refresh`
 - `force/test_api.php` — 서버에서 `php force/test_api.php`로 실행하는 스모크 테스트 (110개+)
 - `assets/app.js` — 렌더 · 팝오버 · 드래그앤드롭 · 10초 폴링
@@ -87,7 +87,8 @@ Server: `14.63.164.109:54122` (root), SSH alias `aion-sanctuary`, repo `https://
 
 ## Key Domain Concepts
 
-- **레이드**: 탭으로 구분되는 편성 단위 (루드라, 침식 등)
+- **레이드**: 탭으로 구분되는 편성 단위 (루드라, 침식 등). 탭을 끌어서 순서를 바꾼다
+  (`raid.reorder` — 전체 id를 새 순서대로 넘겨야 하며 일부만 오면 거부)
 - **포스**: 고정 2파티 × 5슬롯 = 10명
 - **본캐 / 부캐**: 한 사람(`fc_players`)이 여러 캐릭터(`fc_characters`)를 가진다.
   대기창에는 `is_main = 1`만 노출되고, 클릭하면 팝오버에 전부 나온다
@@ -109,7 +110,10 @@ Server: `14.63.164.109:54122` (root), SSH alias `aion-sanctuary`, repo `https://
 - `fc_characters` — id, player_id, char_name (UNIQUE 인덱스 없음 — 위 참고), char_class,
   atul_score, item_level, is_main, is_placeholder, sort_order, atul_updated_at
 - `fc_raids` — id, name, memo, sort_order, created_at
-- `fc_forces` — id, raid_id, force_no, day_of_week, start_time, memo, sort_order
+- `fc_forces` — id, raid_id, force_no, day_of_week, start_time, memo, sort_order, is_active
+  (0이면 "이번 주 미운영" — 슬롯은 그대로 두고 화면만 흐리게 그리며 중복 경고에서 제외.
+  `force.update`의 `is_active`로 토글). 나중에 추가된 컬럼은 `fc_add_column_if_missing()`으로
+  붙인다 — `CREATE TABLE IF NOT EXISTS`는 기존 테이블에 컬럼을 더해주지 않는다.
 - `fc_slots` — id, force_id, party_no(1|2), slot_no(1~5), character_id(NULL 가능),
   UNIQUE(force_id, party_no, slot_no)
 - `fc_meta` — k, v (revision 카운터)
