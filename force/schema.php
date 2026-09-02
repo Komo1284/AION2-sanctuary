@@ -3,9 +3,9 @@
 // 기존 sanctuary_* / craft_* 테이블은 절대 건드리지 않는다.
 
 function fc_add_column_if_missing(PDO $pdo, $table, $column, $definition) {
-    $st = $pdo->prepare("SHOW COLUMNS FROM `$table` LIKE ?");
-    $st->execute([$column]);
-    if ($st->fetch()) return;
+    // SHOW 계열은 프리페어드 바인딩(?)을 받지 않는다 (MariaDB 1064) — quote()로 직접 넣는다.
+    $found = $pdo->query("SHOW COLUMNS FROM `$table` LIKE " . $pdo->quote($column))->fetch();
+    if ($found) return;
     $pdo->exec("ALTER TABLE `$table` ADD COLUMN `$column` $definition");
 }
 
