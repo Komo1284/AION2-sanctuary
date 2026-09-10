@@ -24,14 +24,14 @@ if (!isset($_SESSION['sanctuary_site_auth'])) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>숲 — 포스 편성</title>
+<title>레전드 — 포스 편성</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'Noto Sans KR',sans-serif;background:#0a0c14;color:#e8eaf0;min-height:100vh;display:flex;align-items:center;justify-content:center;
 background-image:radial-gradient(ellipse at 30% 50%,rgba(58,123,213,0.06) 0%,transparent 60%),radial-gradient(ellipse at 70% 30%,rgba(108,61,201,0.06) 0%,transparent 60%);}
 .gate{background:#0f1220;border:1px solid #1e2840;border-radius:16px;padding:40px 36px;width:360px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.5);}
-.gate-legion{font-size:48px;font-weight:900;color:#f0c96a;text-align:center;margin-bottom:4px;letter-spacing:-2px;}
+.gate-legion{font-size:48px;font-weight:900;color:#f0c96a;text-align:center;margin-bottom:4px;letter-spacing:-1px;}
 .gate-title{font-size:14px;color:#8a9ab8;text-align:center;margin-bottom:28px;letter-spacing:1px;}
 .gate-label{display:block;font-size:11px;font-weight:700;color:#4a5a78;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;}
 .gate-input{width:100%;padding:10px 14px;background:#0a0c14;border:1px solid #1e2840;border-radius:8px;color:#e8eaf0;font-size:14px;font-family:inherit;outline:none;transition:border-color .2s;}
@@ -43,7 +43,7 @@ background-image:radial-gradient(ellipse at 30% 50%,rgba(58,123,213,0.06) 0%,tra
 </head>
 <body>
 <div class="gate">
-  <div class="gate-legion">숲</div>
+  <div class="gate-legion">레전드</div>
   <div class="gate-title">AION 2 LEGION · 포스 편성</div>
   <?php if ($site_config_missing): ?>
   <div class="gate-error">⚠ 설정 파일이 없습니다. 관리자에게 문의하세요.</div>
@@ -75,7 +75,7 @@ $state = fc_state($pdo);
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>숲 — 포스 편성</title>
+<title>레전드 — 포스 편성</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/app.css?v=<?= filemtime(__DIR__ . '/assets/app.css') ?>">
 </head>
@@ -83,8 +83,9 @@ $state = fc_state($pdo);
 <div id="fc-conn" class="fc-conn" hidden>⚠ 서버와 연결 끊김 — 재시도 중</div>
 
 <header class="fc-header">
-  <div class="fc-brand"><span class="fc-legion">숲</span><span class="fc-brand-sub">포스 편성</span></div>
+  <div class="fc-brand"><span class="fc-legion">레전드</span><span class="fc-brand-sub">포스 편성</span></div>
   <nav class="fc-header-actions">
+    <a class="fc-link" href="view.php" target="_blank" title="비밀번호 없이 볼 수 있는 읽기 전용 페이지">공유 보기</a>
     <a class="fc-link" href="craft.php">제작계산기</a>
     <button type="button" class="fc-btn" id="fc-open-roster">명단 관리</button>
   </nav>

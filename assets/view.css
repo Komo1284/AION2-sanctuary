@@ -1,0 +1,87 @@
+/* 공유 보기(view.php) 전용 스타일 — 모바일 우선. 토큰은 app.css와 같은 값을 쓴다. */
+:root{
+  --bg:#0a0c14; --panel:#0f1220; --panel-2:#141830; --line:#1e2840; --line-2:#2b3452;
+  --text:#e8eaf0; --muted:#8a9ab8; --dim:#4a5a78;
+  --gold:#f0c96a; --gold-2:#c9a84c; --blue:#3a7bd5; --danger:#e74c3c;
+  --radius:12px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html{-webkit-text-size-adjust:100%;}
+body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;
+  padding-bottom:env(safe-area-inset-bottom);}
+
+/* 헤더 */
+.vw-header{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;
+  gap:10px;padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));
+  background:rgba(10,12,20,0.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);}
+.vw-brand{display:flex;align-items:baseline;gap:8px;min-width:0;}
+.vw-legion{font-size:22px;font-weight:900;color:var(--gold);letter-spacing:-0.5px;white-space:nowrap;}
+.vw-brand-sub{font-size:12px;color:var(--muted);letter-spacing:1px;white-space:nowrap;}
+.vw-updated{font-size:11px;color:var(--dim);white-space:nowrap;}
+.vw-updated.is-error{color:var(--danger);}
+
+.vw-app{padding:12px 12px 24px;max-width:1100px;margin:0 auto;}
+
+/* 레이드 탭 — 모바일에서 가로 스크롤 */
+.vw-tabs{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;
+  padding:2px 0 10px;margin:0 -12px;padding-left:12px;padding-right:12px;}
+.vw-tabs::-webkit-scrollbar{display:none;}
+.vw-tab{flex:0 0 auto;background:transparent;border:1px solid var(--line);border-radius:999px;color:var(--muted);
+  font-family:inherit;font-size:14px;padding:8px 16px;cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent;}
+.vw-tab.is-active{background:var(--panel-2);border-color:var(--gold-2);color:var(--gold);font-weight:700;}
+
+.vw-raid-memo{font-size:13px;color:var(--muted);margin:0 2px 10px;line-height:1.5;}
+.vw-empty{text-align:center;padding:50px 20px;color:var(--muted);border:1px dashed var(--line);border-radius:var(--radius);}
+
+/* 포스 카드 */
+.vw-board{display:flex;flex-direction:column;gap:12px;}
+.vw-force{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px;}
+.vw-force.is-inactive{opacity:.55;}
+.vw-force-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+.vw-force-no{font-size:16px;font-weight:900;color:var(--gold);}
+.vw-force-when{font-size:13px;color:var(--muted);}
+.vw-spacer{flex:1 1 auto;}
+.vw-force-count{font-size:12px;color:var(--dim);}
+.vw-force-avg{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:2px 8px;}
+.vw-force-off{display:inline-block;font-size:12px;color:var(--muted);border:1px solid var(--line-2);border-radius:6px;
+  padding:3px 8px;margin-bottom:8px;}
+.vw-force-memo{font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.5;}
+
+/* 파티 — 모바일: 세로 두 블록, 넓은 화면: 좌우 2열 */
+.vw-parties{display:grid;grid-template-columns:1fr;gap:10px;}
+.vw-party-label{font-size:11px;font-weight:700;color:var(--dim);letter-spacing:1px;margin:0 0 6px 2px;}
+.vw-party-list{list-style:none;display:flex;flex-direction:column;gap:5px;}
+
+/* 슬롯 한 줄 */
+.vw-slot{display:flex;align-items:center;gap:10px;min-height:44px;padding:6px 10px 6px 0;border-radius:8px;
+  background:var(--panel-2);border:1px solid var(--line);overflow:hidden;}
+.vw-slot.is-filled{border-color:color-mix(in srgb, var(--slot-color) 55%, var(--line));
+  background:color-mix(in srgb, var(--slot-color) 14%, var(--panel-2));}
+.vw-slot.is-empty{border-style:dashed;color:var(--dim);}
+.vw-slot.is-placeholder{border-style:dashed;border-color:var(--line-2);background:var(--panel-2);color:var(--muted);}
+.vw-slot-no{flex:0 0 28px;text-align:center;font-size:11px;font-weight:700;color:var(--dim);
+  border-right:3px solid var(--line);align-self:stretch;display:flex;align-items:center;justify-content:center;}
+.vw-slot.is-filled .vw-slot-no{border-right-color:var(--slot-color);color:var(--muted);}
+.vw-slot-body{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1 1 auto;}
+.vw-slot-line{display:flex;align-items:baseline;gap:8px;min-width:0;}
+.vw-slot-name{font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+.vw-slot.is-empty .vw-slot-name{font-weight:400;font-size:13px;}
+.vw-slot-owner{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;max-width:50%;}
+.vw-slot-owner::before{content:'본캐 ';color:var(--dim);}
+.vw-slot-meta{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+.vw-footer{text-align:center;font-size:11px;color:var(--dim);padding:12px 16px 28px;}
+
+/* 태블릿·PC */
+@media (min-width:720px){
+  .vw-header{padding:14px 24px;}
+  .vw-app{padding:16px 24px 32px;}
+  .vw-tabs{margin:0;padding-left:0;padding-right:0;}
+  .vw-parties{grid-template-columns:1fr 1fr;gap:14px;}
+  .vw-force{padding:14px 16px;}
+}
+/* 넓은 PC: 포스 카드 2열 */
+@media (min-width:1100px){
+  .vw-board{display:grid;grid-template-columns:1fr 1fr;align-items:start;}
+  .vw-raid-memo,.vw-empty{grid-column:1 / -1;}
+}
