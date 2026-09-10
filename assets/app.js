@@ -23,15 +23,15 @@ FC.classColor = function (cls) {
   return CLASS_COLORS[cls] || '#4a5a78';
 };
 
-// 전투력을 K/M 단위로 줄여 표시한다 (491,929 → "491K", 1,234,567 → "1.23M").
-// 항상 버림 — 반올림하면 실제보다 높아 보여 오해를 부른다 (999,999는 "999K", 1,999,999는 "1.99M").
+// 전투력을 K/M 단위로 줄여 표시한다 (491,929 → "491K", 1,008,567 → "1.008M").
+// 항상 버림 — 반올림하면 실제보다 높아 보여 오해를 부른다 (999,999는 "999K", 1,999,999는 "1.999M").
 // 값이 없거나 0이면 '—'. 1,000 미만은 K로 줄이면 "0K"가 되므로 숫자를 그대로 쓴다.
 FC.atulShort = function (atul) {
   var n = Number(atul);
   if (!atul || !isFinite(n) || n <= 0) return '—';
   if (n < 1000) return String(Math.floor(n));
   if (n < 1000000) return Math.floor(n / 1000) + 'K';
-  return (Math.floor(n / 10000) / 100).toFixed(2) + 'M';
+  return (Math.floor(n / 1000) / 1000).toFixed(3) + 'M';
 };
 
 FC.el = function (tag, attrs, children) {
