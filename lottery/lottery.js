@@ -300,18 +300,11 @@
 
   $('maskPhone').addEventListener('change', function () { renderList(); renderWinners(); });
 
-  // 숨김 패널 열기: Ctrl+Shift+L 또는 제목 빠르게 3번 클릭
+  // 숨김 패널 열기: Ctrl+Shift+L
   function openSecret() { updateControls(); $('secretModal').hidden = false; }
   document.addEventListener('keydown', function (e) {
     if (e.ctrlKey && e.shiftKey && (e.key === 'L' || e.key === 'l')) { e.preventDefault(); openSecret(); }
     if (e.key === 'Escape') $('secretModal').hidden = true;
-  });
-  var clicks = 0, clickTimer;
-  $('ltTitle').addEventListener('click', function () {
-    clicks++;
-    clearTimeout(clickTimer);
-    clickTimer = setTimeout(function () { clicks = 0; }, 600);
-    if (clicks >= 3) { clicks = 0; openSecret(); }
   });
   $('btnSecretClose').addEventListener('click', function () { $('secretModal').hidden = true; });
   $('secretModal').addEventListener('click', function (e) { if (e.target === this) this.hidden = true; });
