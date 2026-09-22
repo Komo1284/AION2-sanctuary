@@ -1,21 +1,13 @@
-/* 경품 추첨 (영상 연출용) — 서버 저장 없이 브라우저 안에서만 동작한다.
- *
- * 일반 양식: 시트 「추첨명단」 하나 → 전원 중 무작위 추첨
- * 숨김 양식: 시트 「추첨명단」「당첨」「제외」 → 「당첨」을 먼저 뽑고,
- *            남는 자리는 「추첨명단」에서 「제외」를 뺀 사람 중 무작위로 채운다.
- * 어떤 양식인지는 업로드된 파일의 시트 이름으로 판단한다.
+/* 경품 추첨 — 서버 저장 없이 브라우저 안에서만 동작한다.
+ * 업로드한 명단 전원 중에서 정해진 인원을 무작위로 뽑는다.
  */
 (function () {
   'use strict';
 
-  var SHEET_MAIN = '추첨명단', SHEET_MUST = '당첨', SHEET_EXCL = '제외';
+  var SHEET_MAIN = '추첨명단';
 
   var state = {
-    people: [],      // 화면에 보이는 전체 명단 {name, phone, key}
-    general: [],     // 무작위 대상
-    must: [],        // 반드시 당첨
-    exclKeys: {},    // 절대 미당첨 key 집합
-    rigged: false,
+    people: [],      // 추첨 대상 전체 {name, phone, key}
     winners: [],
     drawing: false
   };
@@ -38,21 +30,7 @@
 
   // ---------- 추첨 로직 ----------
   function pickWinners(n) {
-    if (!state.rigged) return shuffle(state.people).slice(0, n);
-    var must = shuffle(state.must);
-    if (must.length >= n) return must.slice(0, n);
-    var mustKeys = {};
-    must.forEach(function (p) { mustKeys[p.key] = 1; });
-    var pool = state.general.filter(function (p) { return !state.exclKeys[p.key] && !mustKeys[p.key]; });
-    // 당첨자들이 앞쪽에 몰려 보이지 않도록 전체 순서를 한 번 더 섞는다
-    return shuffle(must.concat(shuffle(pool).slice(0, n - must.length)));
-  }
-  function maxDrawable() {
-    if (!state.rigged) return state.people.length;
-    var keys = {};
-    state.must.forEach(function (p) { keys[p.key] = 1; });
-    state.general.forEach(function (p) { if (!state.exclKeys[p.key]) keys[p.key] = 1; });
-    return Object.keys(keys).length;
+    return shuffle(state.people).slice(0, n);
   }
 
   // ---------- 엑셀 ----------
@@ -85,34 +63,13 @@
     return out;
   }
 
-  function dedupe(list, seen) {
-    return list.filter(function (p) {
+  function loadWorkbook(wb) {
+    var name = wb.SheetNames.indexOf(SHEET_MAIN) >= 0 ? SHEET_MAIN : wb.SheetNames[0];
+    var seen = {};
+    return readSheet(wb.Sheets[name]).filter(function (p) {   // 같은 이름+전화번호 중복 제거
       if (seen[p.key]) return false;
       seen[p.key] = 1; return true;
     });
-  }
-
-  function loadWorkbook(wb) {
-    var names = wb.SheetNames;
-    var rigged = names.indexOf(SHEET_MUST) >= 0 || names.indexOf(SHEET_EXCL) >= 0;
-    var mainName = names.indexOf(SHEET_MAIN) >= 0 ? SHEET_MAIN : names[0];
-
-    if (!rigged) {
-      var people = dedupe(readSheet(wb.Sheets[mainName]), {});
-      return { rigged: false, people: people, general: people, must: [], exclKeys: {} };
-    }
-    // 우선순위: 당첨 > 제외 > 일반 (같은 사람이 여러 시트에 있으면 앞쪽 분류가 이긴다)
-    var seen = {};
-    var must = dedupe(names.indexOf(SHEET_MUST) >= 0 ? readSheet(wb.Sheets[SHEET_MUST]) : [], seen);
-    var excl = dedupe(names.indexOf(SHEET_EXCL) >= 0 ? readSheet(wb.Sheets[SHEET_EXCL]) : [], seen);
-    var general = names.indexOf(SHEET_MAIN) >= 0 ? dedupe(readSheet(wb.Sheets[SHEET_MAIN]), seen) : [];
-    var exclKeys = {};
-    excl.forEach(function (p) { exclKeys[p.key] = 1; });
-    return {
-      rigged: true,
-      people: shuffle(general.concat(must, excl)),   // 시트 구분이 드러나지 않게 섞어서 표시
-      general: general, must: must, exclKeys: exclKeys
-    };
   }
 
   function makeSheet(rows) {
@@ -182,8 +139,7 @@
 
   function updateControls() {
     $('btnDraw').disabled = state.drawing || state.people.length === 0;
-    $('drawCount').max = maxDrawable() || 1;
-    $('modeDot').classList.toggle('is-rigged', state.rigged);
+    $('drawCount').max = state.people.length || 1;
   }
 
   // ---------- 추첨 연출 ----------
@@ -213,7 +169,7 @@
 
   async function draw() {
     var n = parseInt($('drawCount').value, 10);
-    var max = maxDrawable();
+    var max = state.people.length;
     if (!(n >= 1)) return toast('추첨 인원을 1명 이상 입력해주세요');
     if (n > max) return toast('추첨 가능한 인원은 최대 ' + max + '명입니다');
 
@@ -264,13 +220,9 @@
     var reader = new FileReader();
     reader.onload = function (ev) {
       try {
-        var loaded = loadWorkbook(XLSX.read(ev.target.result, { type: 'array' }));
-        if (loaded.people.length === 0) return toast('명단을 찾지 못했습니다. 양식의 「이름」 칸을 확인해주세요');
-        state.people = loaded.people;
-        state.general = loaded.general;
-        state.must = loaded.must;
-        state.exclKeys = loaded.exclKeys;
-        state.rigged = loaded.rigged;
+        var people = loadWorkbook(XLSX.read(ev.target.result, { type: 'array' }));
+        if (people.length === 0) return toast('명단을 찾지 못했습니다. 양식의 「이름」 칸을 확인해주세요');
+        state.people = people;
         state.winners = [];
         $('fileName').textContent = file.name;
         $('stageIdle').textContent = '추첨 시작 버튼을 눌러주세요';

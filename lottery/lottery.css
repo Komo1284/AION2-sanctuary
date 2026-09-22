@@ -73,9 +73,6 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .lt-table td:first-child,.lt-table th:first-child{width:70px;color:var(--muted);}
 .lt-table tr.is-win td{background:#fff0f4;color:var(--win);font-weight:700;}
 
-.lt-footer{text-align:center;padding:10px;}
-.lt-mode-dot{display:inline-block;width:4px;height:4px;border-radius:50%;background:#d8d4ea;}
-.lt-mode-dot.is-rigged{background:#bdb4e6;}
 
 
 .lt-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--text);color:#fff;
