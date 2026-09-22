@@ -8,8 +8,8 @@
 body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
 
 .lt-header{text-align:center;padding:36px 16px 20px;}
-.lt-title{font-size:40px;font-weight:900;cursor:default;user-select:none;
-  background:linear-gradient(90deg,var(--primary),var(--win));-webkit-background-clip:text;background-clip:text;color:transparent;}
+.lt-title{font-size:40px;font-weight:900;cursor:default;user-select:none;}
+.lt-title-text{background:linear-gradient(90deg,var(--primary),var(--win));-webkit-background-clip:text;background-clip:text;color:transparent;}
 .lt-sub{margin-top:8px;color:var(--muted);font-size:15px;}
 
 .lt-main{max-width:1100px;margin:0 auto;padding:0 16px 40px;display:grid;
