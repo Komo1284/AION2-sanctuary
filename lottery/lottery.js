@@ -121,15 +121,10 @@
     return ws;
   }
 
-  function downloadTemplate(secret) {
+  function downloadTemplate() {
     var wb = XLSX.utils.book_new();
-    var head = [['이름', '전화번호']];
-    XLSX.utils.book_append_sheet(wb, makeSheet(head), SHEET_MAIN);
-    if (secret) {
-      XLSX.utils.book_append_sheet(wb, makeSheet(head), SHEET_MUST);
-      XLSX.utils.book_append_sheet(wb, makeSheet(head), SHEET_EXCL);
-    }
-    XLSX.writeFile(wb, secret ? '추첨명단_양식(연출).xlsx' : '추첨명단_양식.xlsx');
+    XLSX.utils.book_append_sheet(wb, makeSheet([['이름', '전화번호']]), SHEET_MAIN);
+    XLSX.writeFile(wb, '추첨명단_양식.xlsx');
   }
 
   function downloadResult() {
@@ -189,10 +184,6 @@
     $('btnDraw').disabled = state.drawing || state.people.length === 0;
     $('drawCount').max = maxDrawable() || 1;
     $('modeDot').classList.toggle('is-rigged', state.rigged);
-    $('secretStatus').textContent = state.rigged
-      ? '연출 모드 적용 중 — 일반 ' + state.general.length + '명 / 당첨 ' + state.must.length +
-        '명 / 제외 ' + Object.keys(state.exclKeys).length + '명'
-      : '현재 일반 모드';
   }
 
   // ---------- 추첨 연출 ----------
@@ -262,8 +253,7 @@
   }
 
   // ---------- 이벤트 ----------
-  $('btnTemplate').addEventListener('click', function () { downloadTemplate(false); });
-  $('btnSecretTemplate').addEventListener('click', function () { downloadTemplate(true); });
+  $('btnTemplate').addEventListener('click', downloadTemplate);
   $('btnResult').addEventListener('click', downloadResult);
   $('btnDraw').addEventListener('click', draw);
 
@@ -299,15 +289,6 @@
   });
 
   $('maskPhone').addEventListener('change', function () { renderList(); renderWinners(); });
-
-  // 숨김 패널 열기: Ctrl+Shift+L
-  function openSecret() { updateControls(); $('secretModal').hidden = false; }
-  document.addEventListener('keydown', function (e) {
-    if (e.ctrlKey && e.shiftKey && (e.key === 'L' || e.key === 'l')) { e.preventDefault(); openSecret(); }
-    if (e.key === 'Escape') $('secretModal').hidden = true;
-  });
-  $('btnSecretClose').addEventListener('click', function () { $('secretModal').hidden = true; });
-  $('secretModal').addEventListener('click', function (e) { if (e.target === this) this.hidden = true; });
 
   updateControls();
 })();
