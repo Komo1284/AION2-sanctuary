@@ -8,13 +8,9 @@ A PHP web application for managing Aion 2 (아이온2) MMORPG legion sanctuary f
 
 ## Running the App
 
-Requires PHP with PDO/MySQL and a MySQL server. The app connects to a `budget_manager` database on `localhost`. To serve locally:
+Requires PHP with PDO/MySQL and a MySQL server. The app connects to a `budget_manager` database on `localhost`. The local machine has no PHP, so the app runs only on the production server (see Deployment).
 
-```bash
-php -S localhost:8000
-```
-
-There are no automated tests or linters.
+Smoke tests run on the server: `force/test_api.php` and `craft/test_calc.php`. There is no linter beyond `php -l`.
 
 ## Deployment (ALWAYS deploy after any change)
 
@@ -22,7 +18,7 @@ There are no automated tests or linters.
 
 Workflow for every change:
 
-1. Edit files under `/Users/eztake/japanMES/sanctuary/` (local clone).
+1. Edit files under `/Users/eztake/05_japanMES/sanctuary/` (local clone).
 2. `git add` → `git commit` (Korean commit message OK) → `git push origin main`.
 3. On the production server, pull and syntax-check:
    ```bash
@@ -54,8 +50,6 @@ Server: `14.63.164.109:54122` (root), SSH alias `aion-sanctuary`, repo `https://
 - `force/test_api.php` — 서버에서 `php force/test_api.php`로 실행하는 스모크 테스트 (110개+)
 - `assets/app.js` — 렌더 · 팝오버 · 드래그앤드롭 · 10초 폴링
 - `assets/app.css` — 디자인 토큰과 스타일
-
-구 `sections/`, `actions/`, `cron/`, `migrate_add_19.php`는 삭제됐다.
 
 ### 서버 PHP 7.4.3 제약
 
